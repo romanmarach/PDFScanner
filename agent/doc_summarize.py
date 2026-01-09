@@ -9,7 +9,7 @@ def summarize_document(text: str):
     prompt = f"""
     Summarize the document in two ways:
 
-    1. A 2–3 sentence summary.
+    1. A 1 sentence summary.
     2. A bullet-point list.
 
     Return ONLY valid JSON like:
@@ -29,4 +29,7 @@ def summarize_document(text: str):
         ]
     )
 
+    
     return response.choices[0].message.content
+
+    
