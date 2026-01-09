@@ -32,7 +32,7 @@ def main():
 
     print("Document summary:")
     print(summary)
-
+#uncomment this when open ai credit card is set up. 
 #======================================================================
 
     if __name__ == "__main__":

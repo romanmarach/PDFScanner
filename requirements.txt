@@ -1,0 +1,9 @@
+pymupdf
+pytesseract
+pillow
+pdfplumber
+python-docx
+pyyaml
+openpyxl
+openai
+python-dotenv
