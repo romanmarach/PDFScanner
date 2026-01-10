@@ -25,9 +25,10 @@ def classify_document(text: str):
     }}
 
     Text:
-    {text[:3000]}
+    {text[:3000]} 
     """
-
+    #truncated your text to no longer than 3000 characters
+    
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
