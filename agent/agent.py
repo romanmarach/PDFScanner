@@ -21,17 +21,17 @@ def main():
         print("✅ Extracted text saved to ./output/extracted_text.txt")
 #======================================================================
 
-    print("\n Classifying document...")
-    classification = classify_document(text)
+    # print("\n Classifying document...")
+    # classification = classify_document(text)
 
-    print("\n summarizing document...")
-    summary = summarize_document(text)
+    # print("\n summarizing document...")
+    # summary = summarize_document(text)
     
-    print("document type and confidence")
-    print(classification)
+    # print("document type and confidence")
+    # print(classification)
 
-    print("Document summary:")
-    print(summary)
+    # print("Document summary:")
+    # print(summary)
 #uncomment this when open ai credit card is set up. 
 #======================================================================
 
