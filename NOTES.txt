@@ -1,0 +1,43 @@
+PDFSCANNER - QUICK REFERENCE
+=============================
+
+HOW TO RUN
+----------
+python -m agent <file_path>                      # extract text only (default)
+python -m agent <file_path> --mode extract       # same as above
+python -m agent <file_path> --mode full          # extract + classify + summarize
+
+Example:
+python -m agent data/samples/invoice_test.png --mode full
+
+
+SUPPORTED FILES
+---------------
+.pdf, .jpg, .jpeg, .png, .docx
+
+
+OUTPUT
+------
+Extracted text saves to: ./output/extracted_text.txt
+
+
+WHERE WE LEFT OFF (Jan 2026)
+----------------------------
+- Text extraction works
+- Classification + summarization work (--mode full)
+- Currently on branch: feature/multi-file-processing
+
+NEXT STEPS:
+1. Add directory processing (pass a folder, process all files)
+2. Change output to JSON format
+3. Learn pytest, then write tests
+4. Upgrade OCR (PaddleOCR or paid API)
+
+
+PROJECT STRUCTURE
+-----------------
+agent/
+  agent.py           - main entry point, CLI args
+  text_extraction.py - PDF/image/docx text extraction
+  doc_classify.py    - OpenAI classification
+  doc_summarize.py   - OpenAI summarization
