@@ -4,11 +4,23 @@ from PIL import Image
 import docx
 import os
 import tempfile
+import shutil
 
 
-# Set Tesseract path on Windows (change if needed)
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Auto-detect Tesseract path from PATH, fallback to common locations
+tesseract_path = shutil.which("tesseract")
+if not tesseract_path:
+    for path in [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                 r"D:\Program Files\Tesseract-OCR\tesseract.exe"]:
+        if os.path.exists(path):
+            tesseract_path = path
+            break
 
+if tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+else:
+    raise RuntimeError("Tesseract not found. Please install it and add to PATH.")
+#==============================================================
 
 def extract_text(file_path: str) -> str:
     """Main extraction function."""
