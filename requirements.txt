@@ -7,3 +7,5 @@ pyyaml
 openpyxl
 openai
 python-dotenv
+paddlepaddle
+paddleocr
