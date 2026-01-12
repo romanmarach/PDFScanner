@@ -9,4 +9,4 @@ services:
       # Mount output folder to get results
       - ./output:/app/output
     # Default: extract mode. Override with: docker compose run pdfscanner <file> --mode full
-    command: ["data/samples/invoice_test.png"]
+    command: ["data/samples"]

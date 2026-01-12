@@ -6,6 +6,7 @@ import sys
 import os
 import json
 
+#D:\Personal\projects\pdfScanner
 
 def process_single_file(file_path, mode):
     print("📄 Extracting text from:", file_path)
@@ -91,5 +92,7 @@ def main():
 
    
 
-#run with python -m agent data/samples/invoice_test.png
-
+# run with python -m agent data/samples/invoice_test.png
+# docker-compose run pdfscanner data/samples/invoice_test.png
+# docker compose run --rm pdfscanner
+# npx @anthropic-ai/claude-code .
