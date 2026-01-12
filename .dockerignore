@@ -1,0 +1,32 @@
+# Virtual environments
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Git
+.git/
+.gitignore
+
+# Environment files (pass at runtime instead)
+.env
+*.env
+
+# Output (mount as volume instead)
+output/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Test data (mount as volume instead)
+data/
+
+# Misc
+*.md
+NOTES.txt
+tests/

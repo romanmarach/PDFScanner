@@ -4,3 +4,7 @@ __pycache__/
 output/
 venv/
 .venv/
+
+# Claude Code
+.claude/
+tmpclaude-*

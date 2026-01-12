@@ -1,0 +1,12 @@
+services:
+  pdfscanner:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      # Mount your documents folder
+      - ./data:/app/data
+      # Mount output folder to get results
+      - ./output:/app/output
+    # Default: extract mode. Override with: docker compose run pdfscanner <file> --mode full
+    command: ["data/samples/invoice_test.png"]
