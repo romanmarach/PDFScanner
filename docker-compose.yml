@@ -3,6 +3,8 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      - FLAGS_use_mkldnn=0
     volumes:
       # Mount your documents folder
       - ./data:/app/data

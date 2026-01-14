@@ -7,5 +7,5 @@ pyyaml
 openpyxl
 openai
 python-dotenv
-paddlepaddle
-paddleocr
+paddlepaddle==3.2.2
+paddleocr>=2.9.0
