@@ -41,3 +41,11 @@ agent/
   text_extraction.py - PDF/image/docx text extraction
   doc_classify.py    - OpenAI classification
   doc_summarize.py   - OpenAI summarization
+
+  # run with python -m agent data/samples/invoice_test.png
+
+# docker-compose build
+# docker-compose run pdfscanner data/samples/invoice_test.png
+# docker-compose run --rm pdfscanner data/samples/invoice_test.png
+# docker compose run --rm pdfscanner
+# npx @anthropic-ai/claude-code .
