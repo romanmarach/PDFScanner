@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDFScanner — Document Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&family=DM+Sans:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #f7f5f0;
+        --surface: #ffffff;
+        --surface2: #f0ede6;
+        --border: #e0dbcf;
+        --border2: #c8c1b0;
+        --text: #1a1714;
+        --text2: #6b6457;
+        --text3: #9e9488;
+        --accent: #2b4d3a;
+        --accent-light: #e6f0eb;
+        --accent-mid: #5a8c72;
+        --amber: #b07b1a;
+        --amber-bg: #fbf3e2;
+        --red: #8c2020;
+        --red-bg: #fbe8e8;
+        --blue: #1a3d6b;
+        --blue-bg: #e8eff8;
+        --radius: 10px;
+        --radius-lg: 16px;
+        --mono: "DM Mono", monospace;
+        --sans: "DM Sans", sans-serif;
+        --serif: "Fraunces", serif;
+      }
+
+      body {
+        font-family: var(--sans);
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        font-size: 15px;
+      }
+
+      header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 0 2rem;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: var(--text);
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .logo-icon svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: #fff;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .logo-text {
+        font-family: var(--serif);
+        font-size: 18px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+      }
+
+      .logo-badge {
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text3);
+        font-weight: 400;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .api-key-input {
+        font-family: var(--mono);
+        font-size: 12px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 10px;
+        color: var(--text);
+        width: 220px;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      .api-key-input:focus {
+        border-color: var(--accent-mid);
+      }
+
+      .api-key-input::placeholder {
+        color: var(--text3);
+      }
+
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 3rem 2rem;
+      }
+
+      .hero {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+
+      .hero h1 {
+        font-family: var(--serif);
+        font-size: 48px;
+        font-weight: 300;
+        letter-spacing: -0.03em;
+        line-height: 1.1;
+        margin-bottom: 0.75rem;
+        color: var(--text);
+      }
+
+      .hero h1 em {
+        font-style: italic;
+        color: var(--accent);
+      }
+
+      .hero p {
+        color: var(--text2);
+        font-size: 16px;
+        font-weight: 300;
+      }
+
+      .upload-zone {
+        background: var(--surface);
+        border: 1.5px dashed var(--border2);
+        border-radius: var(--radius-lg);
+        padding: 3rem 2rem;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+        margin-bottom: 2rem;
+        position: relative;
+      }
+
+      .upload-zone:hover,
+      .upload-zone.drag-over {
+        border-color: var(--accent-mid);
+        background: var(--accent-light);
+      }
+
+      .upload-zone input[type="file"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+      }
+
+      .upload-icon {
+        width: 52px;
+        height: 52px;
+        margin: 0 auto 1rem;
+        background: var(--accent-light);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .upload-icon svg {
+        width: 26px;
+        height: 26px;
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .upload-label {
+        font-family: var(--serif);
+        font-size: 20px;
+        font-weight: 300;
+        color: var(--text);
+        margin-bottom: 0.4rem;
+      }
+
+      .upload-sub {
+        font-size: 13px;
+        color: var(--text3);
+        font-family: var(--mono);
+      }
+
+      .mode-row {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 1.5rem;
+        justify-content: center;
+      }
+
+      .mode-btn {
+        font-family: var(--sans);
+        font-size: 14px;
+        font-weight: 400;
+        padding: 8px 20px;
+        border-radius: 100px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text2);
+        cursor: pointer;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .mode-btn svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .mode-btn.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+
+      .mode-btn:hover:not(.active) {
+        border-color: var(--accent-mid);
+        color: var(--text);
+      }
+
+      .process-btn {
+        display: block;
+        width: 100%;
+        padding: 14px;
+        background: var(--accent);
+        color: #fff;
+        font-family: var(--sans);
+        font-size: 15px;
+        font-weight: 500;
+        border: none;
+        border-radius: var(--radius);
+        cursor: pointer;
+        transition:
+          opacity 0.15s,
+          transform 0.1s;
+        letter-spacing: 0.01em;
+        margin-bottom: 2.5rem;
+      }
+
+      .process-btn:hover:not(:disabled) {
+        opacity: 0.88;
+      }
+
+      .process-btn:active:not(:disabled) {
+        transform: scale(0.99);
+      }
+
+      .process-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .file-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        margin-bottom: 1rem;
+        display: none;
+      }
+
+      .file-info.show {
+        display: flex;
+      }
+
+      .file-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent-mid);
+        flex-shrink: 0;
+      }
+
+      .file-name {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--text2);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .file-size {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text3);
+      }
+
+      .results {
+        display: none;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .results.show {
+        display: flex;
+      }
+
+      .result-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+
+      .result-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .result-tag {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 3px 8px;
+        border-radius: 4px;
+      }
+
+      .tag-extract {
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+
+      .tag-classify {
+        background: var(--amber-bg);
+        color: var(--amber);
+      }
+
+      .tag-summary {
+        background: var(--accent-light);
+        color: var(--accent);
+      }
+
+      .result-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text);
+        flex: 1;
+      }
+
+      .result-body {
+        padding: 20px;
+      }
+
+      .extracted-text {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.8;
+        color: var(--text2);
+        white-space: pre-wrap;
+        max-height: 300px;
+        overflow-y: auto;
+        background: var(--surface2);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .classify-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .classify-item {
+        background: var(--surface2);
+        border-radius: 8px;
+        padding: 14px 16px;
+      }
+
+      .classify-label {
+        font-size: 11px;
+        font-family: var(--mono);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text3);
+        margin-bottom: 6px;
+      }
+
+      .classify-value {
+        font-size: 20px;
+        font-family: var(--serif);
+        font-weight: 500;
+        color: var(--text);
+        text-transform: capitalize;
+      }
+
+      .confidence-bar {
+        margin-top: 8px;
+        height: 4px;
+        background: var(--border);
+        border-radius: 99px;
+        overflow: hidden;
+      }
+
+      .confidence-fill {
+        height: 100%;
+        background: var(--accent-mid);
+        border-radius: 99px;
+        transition: width 0.5s ease;
+      }
+
+      .confidence-pct {
+        font-family: var(--mono);
+        font-size: 22px;
+        font-weight: 500;
+        color: var(--text);
+      }
+
+      .summary-short {
+        font-family: var(--serif);
+        font-size: 18px;
+        font-weight: 300;
+        font-style: italic;
+        color: var(--text);
+        line-height: 1.5;
+        margin-bottom: 1.25rem;
+        padding-left: 16px;
+        border-left: 2px solid var(--accent-mid);
+      }
+
+      .bullets {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .bullet-item {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        font-size: 14px;
+        color: var(--text2);
+        line-height: 1.5;
+      }
+
+      .bullet-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent-mid);
+        flex-shrink: 0;
+        margin-top: 6px;
+      }
+
+      .loading-state {
+        display: none;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-bottom: 2rem;
+      }
+
+      .loading-state.show {
+        display: flex;
+      }
+
+      .loading-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent-mid);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        flex-shrink: 0;
+      }
+
+      .check-icon {
+        width: 18px;
+        height: 18px;
+        background: var(--accent);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .check-icon svg {
+        width: 10px;
+        height: 10px;
+        fill: none;
+        stroke: #fff;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .loading-label {
+        font-size: 14px;
+        color: var(--text2);
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .error-msg {
+        background: var(--red-bg);
+        border: 1px solid #f7c1c1;
+        border-radius: var(--radius);
+        padding: 12px 16px;
+        font-size: 13px;
+        color: var(--red);
+        display: none;
+        margin-bottom: 1rem;
+      }
+
+      .error-msg.show {
+        display: block;
+      }
+
+      .copy-btn {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text3);
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+
+      .copy-btn:hover {
+        border-color: var(--border2);
+        color: var(--text2);
+      }
+
+      footer {
+        text-align: center;
+        padding: 2rem;
+        font-size: 12px;
+        font-family: var(--mono);
+        color: var(--text3);
+        border-top: 1px solid var(--border);
+        margin-top: 4rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a class="logo" href="#">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+            />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
+          </svg>
+        </div>
+        <span class="logo-text">PDFScanner</span>
+        <span class="logo-badge">/ document intelligence</span>
+      </a>
+      <div class="header-right">
+        <input
+          type="password"
+          class="api-key-input"
+          id="apiKey"
+          placeholder="sk-ant-… (Anthropic API key)"
+        />
+      </div>
+    </header>
+
+    <main>
+      <div class="hero">
+        <h1>Understand any<br /><em>document instantly</em></h1>
+        <p>
+          Extract text, classify document type, and generate summaries — powered
+          by Claude AI.
+        </p>
+      </div>
+
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.docx" />
+        <div class="upload-icon">
+          <svg viewBox="0 0 24 24">
+            <polyline points="16 16 12 12 8 16" />
+            <line x1="12" y1="12" x2="12" y2="21" />
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+          </svg>
+        </div>
+        <div class="upload-label">Drop your document here</div>
+        <div class="upload-sub">
+          .pdf · .png · .jpg · .docx &nbsp;—&nbsp; or click to browse
+        </div>
+      </div>
+
+      <div class="file-info" id="fileInfo">
+        <div class="file-dot"></div>
+        <div class="file-name" id="fileName">—</div>
+        <div class="file-size" id="fileSize">—</div>
+      </div>
+
+      <div class="mode-row">
+        <button
+          class="mode-btn active"
+          data-mode="extract"
+          onclick="setMode('extract', this)"
+        >
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+            />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+          Extract text
+        </button>
+        <button
+          class="mode-btn"
+          data-mode="full"
+          onclick="setMode('full', this)"
+        >
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Full analysis
+        </button>
+      </div>
+
+      <div class="error-msg" id="errorMsg"></div>
+
+      <button
+        class="process-btn"
+        id="processBtn"
+        disabled
+        onclick="processFile()"
+      >
+        Process document
+      </button>
+
+      <div class="loading-state" id="loadingState">
+        <div class="loading-card" id="step-extract">
+          <div class="spinner"></div>
+          <div class="loading-label">Extracting text from document…</div>
+        </div>
+        <div class="loading-card" id="step-classify" style="display: none">
+          <div class="spinner"></div>
+          <div class="loading-label">Classifying document type…</div>
+        </div>
+        <div class="loading-card" id="step-summarize" style="display: none">
+          <div class="spinner"></div>
+          <div class="loading-label">Generating summary…</div>
+        </div>
+      </div>
+
+      <div class="results" id="results">
+        <div class="result-card" id="card-extract">
+          <div class="result-header">
+            <span class="result-tag tag-extract">Extracted text</span>
+            <span class="result-title" id="extract-title">—</span>
+            <button class="copy-btn" onclick="copyText('extractedContent')">
+              Copy
+            </button>
+          </div>
+          <div class="result-body">
+            <div class="extracted-text" id="extractedContent"></div>
+          </div>
+        </div>
+
+        <div class="result-card" id="card-classify" style="display: none">
+          <div class="result-header">
+            <span class="result-tag tag-classify">Classification</span>
+            <span class="result-title">Document type detected</span>
+          </div>
+          <div class="result-body">
+            <div class="classify-grid">
+              <div class="classify-item">
+                <div class="classify-label">Type</div>
+                <div class="classify-value" id="docType">—</div>
+              </div>
+              <div class="classify-item">
+                <div class="classify-label">Confidence</div>
+                <div class="confidence-pct" id="docConfidence">—</div>
+                <div class="confidence-bar">
+                  <div
+                    class="confidence-fill"
+                    id="confBar"
+                    style="width: 0%"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-card" id="card-summary" style="display: none">
+          <div class="result-header">
+            <span class="result-tag tag-summary">Summary</span>
+            <span class="result-title">AI-generated overview</span>
+          </div>
+          <div class="result-body">
+            <div class="summary-short" id="shortSummary"></div>
+            <div class="bullets" id="bulletPoints"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      PDFScanner · Claude-powered document intelligence · API key stays in your
+      browser
+    </footer>
+
+    <script>
+      let currentFile = null;
+      let currentMode = "extract";
+
+      function setMode(mode, btn) {
+        currentMode = mode;
+        document
+          .querySelectorAll(".mode-btn")
+          .forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+      }
+
+      const uploadZone = document.getElementById("uploadZone");
+      const fileInput = document.getElementById("fileInput");
+
+      uploadZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        uploadZone.classList.add("drag-over");
+      });
+      uploadZone.addEventListener("dragleave", () =>
+        uploadZone.classList.remove("drag-over"),
+      );
+      uploadZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove("drag-over");
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+      });
+
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files.length) handleFile(fileInput.files[0]);
+      });
+
+      function handleFile(file) {
+        currentFile = file;
+        document.getElementById("fileName").textContent = file.name;
+        document.getElementById("fileSize").textContent = formatBytes(
+          file.size,
+        );
+        document.getElementById("fileInfo").classList.add("show");
+        document.getElementById("processBtn").disabled = false;
+        hideResults();
+      }
+
+      function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+        return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+      }
+
+      function showError(msg) {
+        const el = document.getElementById("errorMsg");
+        el.textContent = msg;
+        el.classList.add("show");
+      }
+
+      function hideError() {
+        document.getElementById("errorMsg").classList.remove("show");
+      }
+
+      function hideResults() {
+        document.getElementById("results").classList.remove("show");
+        document.getElementById("card-classify").style.display = "none";
+        document.getElementById("card-summary").style.display = "none";
+        document.getElementById("loadingState").classList.remove("show");
+      }
+
+      function setStepDone(stepId) {
+        const card = document.getElementById(stepId);
+        card.querySelector(".spinner").style.display = "none";
+        const check = document.createElement("div");
+        check.className = "check-icon";
+        check.innerHTML = `<svg viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3"/></svg>`;
+        card.insertBefore(check, card.querySelector(".loading-label"));
+      }
+
+      async function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(",")[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function getMediaType(file) {
+        const ext = file.name.split(".").pop().toLowerCase();
+        const map = {
+          pdf: "application/pdf",
+          png: "image/png",
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+        };
+        return map[ext] || "application/octet-stream";
+      }
+
+      async function callClaude(messages, systemPrompt) {
+        const apiKey = document.getElementById("apiKey").value.trim();
+        if (!apiKey)
+          throw new Error(
+            "Please enter your Anthropic API key in the top-right corner.",
+          );
+
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 2048,
+            system: systemPrompt,
+            messages,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error?.message || `API error ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.content.find((b) => b.type === "text")?.text || "";
+      }
+
+      async function extractTextFromDoc(file) {
+        const ext = file.name.split(".").pop().toLowerCase();
+
+        if (["pdf", "png", "jpg", "jpeg"].includes(ext)) {
+          const b64 = await fileToBase64(file);
+          const mediaType = getMediaType(file);
+
+          const contentType = ext === "pdf" ? "document" : "image";
+
+          const messages = [
+            {
+              role: "user",
+              content: [
+                {
+                  type: contentType,
+                  source: { type: "base64", media_type: mediaType, data: b64 },
+                },
+                {
+                  type: "text",
+                  text: "Please extract ALL text from this document exactly as it appears. Return only the raw extracted text with no commentary, no formatting notes, and no explanation. Preserve line breaks and structure.",
+                },
+              ],
+            },
+          ];
+
+          return await callClaude(
+            messages,
+            "You are a precise OCR and text extraction system. Extract text faithfully.",
+          );
+        }
+
+        if (ext === "docx") {
+          throw new Error(
+            "DOCX files require server-side processing. Please upload a PDF or image file.",
+          );
+        }
+
+        throw new Error(
+          "Unsupported file type. Please upload a PDF, PNG, JPG, or DOCX.",
+        );
+      }
+
+      async function classifyDoc(text) {
+        const messages = [
+          {
+            role: "user",
+            content: `Classify this document. Return ONLY valid JSON, no markdown, no explanation:\n{"document_type": "invoice|resume|contract|letter|bank_statement|tax_form|report|other", "confidence": 0-100}\n\nText:\n${text.slice(0, 3000)}`,
+          },
+        ];
+        const raw = await callClaude(
+          messages,
+          "You are a document classification AI. Return only valid JSON.",
+        );
+        const clean = raw.replace(/```json|```/g, "").trim();
+        return JSON.parse(clean);
+      }
+
+      async function summarizeDoc(text) {
+        const messages = [
+          {
+            role: "user",
+            content: `Summarize this document. Return ONLY valid JSON, no markdown, no explanation:\n{"short_summary": "one sentence", "bullet_points": ["point 1", "point 2", "point 3"]}\n\nText:\n${text.slice(0, 4000)}`,
+          },
+        ];
+        const raw = await callClaude(
+          messages,
+          "You are a document summarization AI. Return only valid JSON.",
+        );
+        const clean = raw.replace(/```json|```/g, "").trim();
+        return JSON.parse(clean);
+      }
+
+      async function processFile() {
+        if (!currentFile) return;
+        hideError();
+        hideResults();
+
+        const processBtn = document.getElementById("processBtn");
+        processBtn.disabled = true;
+        processBtn.textContent = "Processing…";
+
+        const loadingState = document.getElementById("loadingState");
+        loadingState.classList.add("show");
+
+        const stepExtract = document.getElementById("step-extract");
+        const stepClassify = document.getElementById("step-classify");
+        const stepSummarize = document.getElementById("step-summarize");
+
+        // Reset spinners
+        stepExtract.querySelector(".check-icon")?.remove();
+        stepExtract.querySelector(".spinner").style.display = "";
+        stepClassify.querySelector(".check-icon")?.remove();
+        stepClassify.querySelector(".spinner").style.display = "";
+        stepSummarize.querySelector(".check-icon")?.remove();
+        stepSummarize.querySelector(".spinner").style.display = "";
+
+        try {
+          // Step 1: Extract
+          const text = await extractTextFromDoc(currentFile);
+          setStepDone("step-extract");
+
+          // Show extract results
+          document.getElementById("extractedContent").textContent = text;
+          document.getElementById("extract-title").textContent =
+            `${text.split(/\s+/).filter(Boolean).length} words extracted`;
+          document.getElementById("results").classList.add("show");
+
+          if (currentMode === "full") {
+            // Step 2: Classify
+            stepClassify.style.display = "flex";
+            const classification = await classifyDoc(text);
+            setStepDone("step-classify");
+
+            document.getElementById("docType").textContent =
+              classification.document_type?.replace(/_/g, " ") || "—";
+            document.getElementById("docConfidence").textContent =
+              `${classification.confidence}%`;
+            document.getElementById("confBar").style.width =
+              `${classification.confidence}%`;
+            document.getElementById("card-classify").style.display = "";
+
+            // Step 3: Summarize
+            stepSummarize.style.display = "flex";
+            const summary = await summarizeDoc(text);
+            setStepDone("step-summarize");
+
+            document.getElementById("shortSummary").textContent =
+              summary.short_summary || "";
+            const bulletEl = document.getElementById("bulletPoints");
+            bulletEl.innerHTML = "";
+            (summary.bullet_points || []).forEach((pt) => {
+              bulletEl.innerHTML += `<div class="bullet-item"><div class="bullet-dot"></div><div>${pt}</div></div>`;
+            });
+            document.getElementById("card-summary").style.display = "";
+          }
+        } catch (err) {
+          showError(err.message || "An error occurred. Please try again.");
+          loadingState.classList.remove("show");
+        } finally {
+          processBtn.disabled = false;
+          processBtn.textContent = "Process document";
+        }
+      }
+
+      function copyText(id) {
+        const text = document.getElementById(id).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          const btn = event.target;
+          btn.textContent = "Copied!";
+          setTimeout(() => {
+            btn.textContent = "Copy";
+          }, 1500);
+        });
+      }
+    </script>
+  </body>
+</html>
