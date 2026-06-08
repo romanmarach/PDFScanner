@@ -10,3 +10,4 @@ python-dotenv
 flask
 paddlepaddle==3.2.2
 paddleocr>=2.9.0
+pytest
