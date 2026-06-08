@@ -335,10 +335,17 @@ def flask_client(monkeypatch, tmp_path):
 
 
 class TestWebApp:
-    def test_index_returns_200(self, flask_client):
+    def test_index_returns_explainer(self, flask_client):
         client, _ = flask_client
         resp = client.get("/")
         assert resp.status_code == 200
+        assert b"Understand any" in resp.data
+
+    def test_extract_page_returns_200(self, flask_client):
+        client, _ = flask_client
+        resp = client.get("/extract")
+        assert resp.status_code == 200
+        assert b"Document" in resp.data
 
     def test_extract_no_file_returns_400(self, flask_client):
         client, _ = flask_client
@@ -446,6 +453,140 @@ class TestWebApp:
         assert resp.status_code == 200
         body = resp.get_json()
         assert "classification" in body or resp.status_code == 200  # graceful if mocks don't chain perfectly
+
+    def test_explain_no_file_returns_400(self, flask_client):
+        client, _ = flask_client
+        resp = client.post("/api/explain", data={"language": "ukrainian"})
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_explain_unsupported_type_returns_400(self, flask_client):
+        client, _ = flask_client
+        data = {
+            "file": (io.BytesIO(b"data"), "file.xlsx"),
+            "language": "ukrainian",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 400
+
+    def test_explain_unsupported_language_returns_400(self, flask_client):
+        client, _ = flask_client
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "language": "klingon",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 400
+
+    def test_explain_english_skips_translation(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        explanation = {
+            "document_type": "Invoice",
+            "summary": "This is an invoice.",
+            "explanation": "The document asks for payment.",
+            "important_points": ["Payment is due."],
+            "actions_required": ["Pay the invoice."],
+            "important_dates": [],
+            "amounts": ["$500"],
+            "warnings": [],
+        }
+        mock_explain = MagicMock(return_value=explanation)
+        mock_translate = MagicMock()
+        monkeypatch.setattr("agent.doc_explain.explain_document", mock_explain)
+        monkeypatch.setattr("agent.doc_explain.translate_explanation", mock_translate)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "language": "english",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["english"]["summary"] == "This is an invoice."
+        assert body["translated"] is None
+        mock_translate.assert_not_called()
+
+    def test_explain_ukrainian_calls_translation(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        explanation = {
+            "document_type": "Invoice",
+            "summary": "This is an invoice.",
+            "explanation": "The document asks for payment.",
+            "important_points": [],
+            "actions_required": [],
+            "important_dates": [],
+            "amounts": [],
+            "warnings": [],
+        }
+        translated = {
+            **explanation,
+            "document_type": "Рахунок",
+            "summary": "Це рахунок.",
+        }
+        mock_translate = MagicMock(return_value=translated)
+        monkeypatch.setattr("agent.doc_explain.explain_document", MagicMock(return_value=explanation))
+        monkeypatch.setattr("agent.doc_explain.translate_explanation", mock_translate)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "language": "ukrainian",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["languageName"] == "Ukrainian"
+        assert body["translated"]["summary"] == "Це рахунок."
+        mock_translate.assert_called_once_with(explanation, "Ukrainian")
+
+    def test_explain_saves_latest_explanation_json(self, flask_client, monkeypatch):
+        client, tmp_path = flask_client
+        explanation = {
+            "document_type": "Letter",
+            "summary": "This is a letter.",
+            "explanation": "The sender is communicating information.",
+            "important_points": [],
+            "actions_required": [],
+            "important_dates": [],
+            "amounts": [],
+            "warnings": [],
+        }
+        monkeypatch.setattr("agent.doc_explain.explain_document", MagicMock(return_value=explanation))
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "language": "english",
+        }
+        client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        latest = tmp_path / "output" / "latest_explanation.json"
+        assert latest.exists()
+        saved = json.loads(latest.read_text(encoding="utf-8"))
+        assert saved["english"]["document_type"] == "Letter"
+
+    def test_explain_deletes_upload_after_processing(self, flask_client, monkeypatch, tmp_path):
+        client, tmp_path = flask_client
+        explanation = {
+            "document_type": "Memo",
+            "summary": "This is a memo.",
+            "explanation": "The memo shares information.",
+            "important_points": [],
+            "actions_required": [],
+            "important_dates": [],
+            "amounts": [],
+            "warnings": [],
+        }
+        monkeypatch.setattr("agent.doc_explain.explain_document", MagicMock(return_value=explanation))
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "language": "english",
+        }
+        client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
+        assert uploads == []
 
 
 # ---------------------------------------------------------------------------

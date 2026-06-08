@@ -65,11 +65,18 @@ python web_app.py
 
 Open `http://127.0.0.1:5000` in a browser, select a document, and choose either:
 
-- **Extract:** OCR and text extraction only
-- **Full:** extraction, classification, and summarization
+- **Explain:** generate a plain-English explanation and optionally translate it
+- **Extract:** OCR and text extraction, with optional classification and summarization
 
 Uploaded files are deleted after processing. The latest result is saved to
-`output/latest_result.json`.
+`output/latest_result.json` or `output/latest_explanation.json`.
+
+The document explainer is available at `/`, and the text extractor is available
+at `/extract`. The explainer uses `gpt-5.4-mini` by default. Override it with:
+
+```env
+OPENAI_EXPLAIN_MODEL=your_model_name
+```
 
 ## Command Line
 

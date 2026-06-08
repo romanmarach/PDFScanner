@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PDFScanner - Document Intelligence</title>
+    <title>PDFScanner - Document Explainer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&display=swap" rel="stylesheet">
@@ -20,19 +20,25 @@
         </span>
         <span>
           <span class="logo-text">PDFScanner</span>
-          <span class="logo-badge">OCR</span>
+          <span class="logo-badge">Explain</span>
         </span>
       </a>
+
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a class="active" href="/">Explain</a>
+        <a href="/extract">Extract</a>
+      </nav>
+
       <div class="status-pill" id="statusPill">Ready</div>
     </header>
 
-    <main class="app-shell">
+    <main class="app-shell explainer-shell">
       <section class="hero">
-        <h1>Document <em>intelligence</em> workspace</h1>
-        <p>Extract readable text from PDFs, images, and Word documents with optional classification and summaries.</p>
+        <h1>Understand any <em>document</em></h1>
+        <p>Turn difficult English documents into a clear explanation, then read it in the language you prefer.</p>
       </section>
 
-      <form class="upload-card" id="uploadForm">
+      <form class="upload-card" id="explainForm">
         <label class="upload-zone" id="dropZone">
           <input id="fileInput" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx">
           <span class="upload-icon" aria-hidden="true">
@@ -44,75 +50,87 @@
           <span class="upload-hint" id="fileMeta">PDF, PNG, JPG, JPEG, DOCX up to 25 MB</span>
         </label>
 
-        <div class="control-row">
-          <div class="mode-tabs" role="radiogroup" aria-label="Processing mode">
-            <label>
-              <input type="radio" name="mode" value="extract" checked>
-              <span>Extract text</span>
-            </label>
-            <label>
-              <input type="radio" name="mode" value="full">
-              <span>Analyze</span>
-            </label>
-          </div>
+        <div class="control-row explain-controls">
+          <label class="select-field" for="languageSelect">
+            <span>Explanation language</span>
+            <select id="languageSelect" name="language">
+              <option value="english">English</option>
+              <option value="ukrainian" selected>Ukrainian</option>
+              <option value="spanish">Spanish</option>
+              <option value="french">French</option>
+              <option value="german">German</option>
+              <option value="portuguese">Portuguese</option>
+              <option value="polish">Polish</option>
+              <option value="russian">Russian</option>
+            </select>
+          </label>
 
           <button class="primary-button" type="submit" id="submitButton">
-            <span>Run OCR</span>
+            <span>Explain document</span>
           </button>
         </div>
 
         <p class="form-message" id="formMessage"></p>
       </form>
 
-      <section class="results-card" aria-live="polite">
+      <section class="results-card explanation-results" id="resultsCard" aria-live="polite">
         <div class="results-top">
           <div>
-            <p class="section-label">Results</p>
-            <h2>Extracted document text</h2>
-            <p id="resultMeta">No document processed yet.</p>
+            <p class="section-label">Document explanation</p>
+            <h2 id="resultTitle">No document explained yet</h2>
+            <p id="resultMeta">Upload a document to see its key information in plain language.</p>
           </div>
           <div class="actions">
             <button type="button" id="copyButton" disabled>Copy</button>
-            <a id="downloadLink" href="/api/latest" aria-disabled="true">JSON</a>
+            <a id="downloadLink" href="/api/latest-explanation" aria-disabled="true">JSON</a>
           </div>
         </div>
 
-        <div class="metrics">
-          <div>
-            <span>Words</span>
-            <strong id="wordCount">0</strong>
-          </div>
-          <div>
-            <span>Characters</span>
-            <strong id="charCount">0</strong>
-          </div>
-          <div>
-            <span>Mode</span>
-            <strong id="modeLabel">-</strong>
-          </div>
+        <div class="language-tabs" id="languageTabs" hidden>
+          <button type="button" class="active" data-view="english">English</button>
+          <button type="button" data-view="translated" id="translatedTab">Translation</button>
         </div>
 
-        <div class="analysis-grid" id="analysisGrid" hidden>
-          <div>
-            <span>Type</span>
-            <strong id="docType">-</strong>
+        <div class="explanation-content empty" id="explanationContent">
+          <section class="explanation-lead">
+            <p class="section-label">Summary</p>
+            <p id="summaryText">Your plain-language summary will appear here.</p>
+          </section>
+
+          <section class="explanation-section">
+            <h3>What this document means</h3>
+            <p id="explanationText">A detailed explanation will appear after processing.</p>
+          </section>
+
+          <div class="explanation-grid">
+            <section class="explanation-section">
+              <h3>Important points</h3>
+              <ul id="importantPoints"></ul>
+            </section>
+            <section class="explanation-section">
+              <h3>Actions required</h3>
+              <ul id="actionsRequired"></ul>
+            </section>
+            <section class="explanation-section">
+              <h3>Dates</h3>
+              <ul id="importantDates"></ul>
+            </section>
+            <section class="explanation-section">
+              <h3>Amounts</h3>
+              <ul id="amounts"></ul>
+            </section>
           </div>
-          <div>
-            <span>Confidence</span>
-            <strong id="confidence">-</strong>
-          </div>
+
+          <section class="explanation-section warning-section" id="warningSection">
+            <h3>Warnings and risks</h3>
+            <ul id="warnings"></ul>
+          </section>
         </div>
 
-        <div class="summary-block" id="summaryBlock" hidden>
-          <h3>Summary</h3>
-          <p id="shortSummary"></p>
-          <ul id="bulletSummary"></ul>
-        </div>
-
-        <textarea id="textOutput" spellcheck="false" readonly placeholder="Extracted text will appear here."></textarea>
+        <p class="disclaimer">AI explanations can contain mistakes. Verify important legal, medical, financial, or government information with a qualified professional.</p>
       </section>
     </main>
 
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ url_for('static', filename='explain.js') }}"></script>
   </body>
 </html>

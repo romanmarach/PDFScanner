@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PDFScanner - Text Extractor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="logo" href="/">
+        <span class="logo-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+            <path d="M14 3v5h5M9 13h6M9 17h4"/>
+          </svg>
+        </span>
+        <span>
+          <span class="logo-text">PDFScanner</span>
+          <span class="logo-badge">Extract</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/">Explain</a>
+        <a class="active" href="/extract">Extract</a>
+      </nav>
+      <div class="status-pill" id="statusPill">Ready</div>
+    </header>
+
+    <main class="app-shell">
+      <section class="hero">
+        <h1>Document <em>text</em> extractor</h1>
+        <p>Extract readable text from PDFs, images, and Word documents with optional classification and summaries.</p>
+      </section>
+
+      <form class="upload-card" id="uploadForm">
+        <label class="upload-zone" id="dropZone">
+          <input id="fileInput" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx">
+          <span class="upload-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 3v12m0-12 4 4m-4-4-4 4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>
+            </svg>
+          </span>
+          <span class="upload-label" id="dropTitle">Drop file here or browse</span>
+          <span class="upload-hint" id="fileMeta">PDF, PNG, JPG, JPEG, DOCX up to 25 MB</span>
+        </label>
+
+        <div class="control-row">
+          <div class="mode-tabs" role="radiogroup" aria-label="Processing mode">
+            <label>
+              <input type="radio" name="mode" value="extract" checked>
+              <span>Extract text</span>
+            </label>
+            <label>
+              <input type="radio" name="mode" value="full">
+              <span>Analyze</span>
+            </label>
+          </div>
+
+          <button class="primary-button" type="submit" id="submitButton">
+            <span>Run OCR</span>
+          </button>
+        </div>
+
+        <p class="form-message" id="formMessage"></p>
+      </form>
+
+      <section class="results-card" aria-live="polite">
+        <div class="results-top">
+          <div>
+            <p class="section-label">Results</p>
+            <h2>Extracted document text</h2>
+            <p id="resultMeta">No document processed yet.</p>
+          </div>
+          <div class="actions">
+            <button type="button" id="copyButton" disabled>Copy</button>
+            <a id="downloadLink" href="/api/latest" aria-disabled="true">JSON</a>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div>
+            <span>Words</span>
+            <strong id="wordCount">0</strong>
+          </div>
+          <div>
+            <span>Characters</span>
+            <strong id="charCount">0</strong>
+          </div>
+          <div>
+            <span>Mode</span>
+            <strong id="modeLabel">-</strong>
+          </div>
+        </div>
+
+        <div class="analysis-grid" id="analysisGrid" hidden>
+          <div>
+            <span>Type</span>
+            <strong id="docType">-</strong>
+          </div>
+          <div>
+            <span>Confidence</span>
+            <strong id="confidence">-</strong>
+          </div>
+        </div>
+
+        <div class="summary-block" id="summaryBlock" hidden>
+          <h3>Summary</h3>
+          <p id="shortSummary"></p>
+          <ul id="bulletSummary"></ul>
+        </div>
+
+        <textarea id="textOutput" spellcheck="false" readonly placeholder="Extracted text will appear here."></textarea>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
