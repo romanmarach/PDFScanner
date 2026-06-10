@@ -317,7 +317,7 @@ class TestSummarizeDocument:
 def flask_client(monkeypatch, tmp_path):
     """
     Create a Flask test client with extract_text mocked so no real OCR runs.
-    UPLOAD_DIR and OUTPUT_DIR are redirected to tmp_path.
+    UPLOAD_DIR is redirected to tmp_path.
     """
     import sys
     fake = types.ModuleType("paddleocr")
@@ -326,7 +326,6 @@ def flask_client(monkeypatch, tmp_path):
 
     import web_app
     monkeypatch.setattr("web_app.UPLOAD_DIR", tmp_path / "uploads")
-    monkeypatch.setattr("web_app.OUTPUT_DIR", tmp_path / "output")
     monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="extracted text content"))
 
     web_app.app.config["TESTING"] = True
@@ -394,17 +393,15 @@ class TestWebApp:
         assert "characterCount" in body
         assert "wordCount" in body
 
-    def test_extract_saves_latest_result_json(self, flask_client):
+    def test_extract_does_not_persist_result(self, flask_client):
         client, tmp_path = flask_client
         data = {
             "file": (io.BytesIO(b"dummy"), "test.pdf"),
             "mode": "extract",
         }
-        client.post("/api/extract", data=data, content_type="multipart/form-data")
-        latest = tmp_path / "output" / "latest_result.json"
-        assert latest.exists()
-        saved = json.loads(latest.read_text())
-        assert saved["text"] == "extracted text content"
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        assert not (tmp_path / "output").exists()
 
     def test_extract_deletes_upload_after_processing(self, flask_client):
         client, tmp_path = flask_client
@@ -415,22 +412,6 @@ class TestWebApp:
         client.post("/api/extract", data=data, content_type="multipart/form-data")
         uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
         assert uploads == [], "Uploaded file should be deleted after processing"
-
-    def test_latest_result_not_found(self, flask_client):
-        client, _ = flask_client
-        resp = client.get("/api/latest")
-        assert resp.status_code == 404
-
-    def test_latest_result_returns_file(self, flask_client):
-        client, tmp_path = flask_client
-        output_dir = tmp_path / "output"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "latest_result.json").write_text('{"text": "hello"}')
-        import web_app
-        import unittest.mock
-        with unittest.mock.patch("web_app.OUTPUT_DIR", output_dir):
-            resp = client.get("/api/latest")
-        assert resp.status_code == 200
 
     def test_extract_full_mode_calls_classify_and_summarize(self, flask_client, monkeypatch):
         client, tmp_path = flask_client
@@ -540,7 +521,7 @@ class TestWebApp:
         assert body["translated"]["summary"] == "Це рахунок."
         mock_translate.assert_called_once_with(explanation, "Ukrainian")
 
-    def test_explain_saves_latest_explanation_json(self, flask_client, monkeypatch):
+    def test_explain_does_not_persist_result(self, flask_client, monkeypatch):
         client, tmp_path = flask_client
         explanation = {
             "document_type": "Letter",
@@ -558,12 +539,9 @@ class TestWebApp:
             "file": (io.BytesIO(b"dummy"), "test.pdf"),
             "language": "english",
         }
-        client.post("/api/explain", data=data, content_type="multipart/form-data")
-
-        latest = tmp_path / "output" / "latest_explanation.json"
-        assert latest.exists()
-        saved = json.loads(latest.read_text(encoding="utf-8"))
-        assert saved["english"]["document_type"] == "Letter"
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        assert not (tmp_path / "output").exists()
 
     def test_explain_deletes_upload_after_processing(self, flask_client, monkeypatch, tmp_path):
         client, tmp_path = flask_client

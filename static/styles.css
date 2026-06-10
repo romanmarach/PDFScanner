@@ -339,8 +339,7 @@ select {
 }
 
 .primary-button:disabled,
-.actions button:disabled,
-.actions a[aria-disabled="true"] {
+.actions button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }

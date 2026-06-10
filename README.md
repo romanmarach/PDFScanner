@@ -68,8 +68,8 @@ Open `http://127.0.0.1:5000` in a browser, select a document, and choose either:
 - **Explain:** generate a plain-English explanation and optionally translate it
 - **Extract:** OCR and text extraction, with optional classification and summarization
 
-Uploaded files are deleted after processing. The latest result is saved to
-`output/latest_result.json` or `output/latest_explanation.json`.
+Uploaded files are deleted after processing. JSON downloads are generated in
+the browser from the current result and are not retained by the web server.
 
 The document explainer is available at `/`, and the text extractor is available
 at `/extract`. The explainer uses `gpt-5.4-mini` by default. Override it with:

@@ -114,8 +114,20 @@ function renderResult(result) {
   languageTabs.hidden = !result.translated;
   translatedTab.textContent = result.languageName || "Translation";
   copyButton.disabled = false;
-  downloadLink.setAttribute("aria-disabled", "false");
+  downloadLink.disabled = false;
   renderExplanation();
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function explanationAsText(explanation) {
@@ -219,4 +231,12 @@ copyButton.addEventListener("click", async () => {
 
   await navigator.clipboard.writeText(explanationAsText(explanation));
   setMessage("Explanation copied.");
+});
+
+downloadLink.addEventListener("click", () => {
+  if (!latestResult) {
+    return;
+  }
+
+  downloadJson(latestResult, "document-explanation.json");
 });

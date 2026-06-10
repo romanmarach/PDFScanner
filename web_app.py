@@ -3,7 +3,7 @@ import os
 import uuid
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 from agent.text_extraction import extract_text
@@ -11,7 +11,6 @@ from agent.text_extraction import extract_text
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
-OUTPUT_DIR = BASE_DIR / "output"
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".docx"}
 ALLOWED_LANGUAGES = {
     "english": "English",
@@ -69,7 +68,6 @@ def extract_document():
         return jsonify({"error": "Invalid processing mode."}), 400
 
     UPLOAD_DIR.mkdir(exist_ok=True)
-    OUTPUT_DIR.mkdir(exist_ok=True)
 
     original_name = secure_filename(uploaded_file.filename)
     suffix = Path(original_name).suffix.lower()
@@ -94,9 +92,6 @@ def extract_document():
 
             result["classification"] = parse_jsonish(classify_document(text))
             result["summary"] = parse_jsonish(summarize_document(text))
-
-        output_file = OUTPUT_DIR / "latest_result.json"
-        output_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
         return jsonify(result)
     except Exception as exc:
@@ -123,7 +118,6 @@ def explain_uploaded_document():
         return jsonify({"error": "Choose a supported explanation language."}), 400
 
     UPLOAD_DIR.mkdir(exist_ok=True)
-    OUTPUT_DIR.mkdir(exist_ok=True)
 
     original_name = secure_filename(uploaded_file.filename)
     suffix = Path(original_name).suffix.lower()
@@ -155,8 +149,6 @@ def explain_uploaded_document():
             "sourceWasTruncated": was_truncated,
         }
 
-        output_file = OUTPUT_DIR / "latest_explanation.json"
-        output_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
@@ -165,24 +157,6 @@ def explain_uploaded_document():
             stored_path.unlink(missing_ok=True)
         except OSError:
             pass
-
-
-@app.get("/api/latest")
-def latest_result():
-    output_file = OUTPUT_DIR / "latest_result.json"
-    if not output_file.exists():
-        return jsonify({"error": "No extraction result has been saved yet."}), 404
-
-    return send_file(output_file, as_attachment=True, download_name="pdfscanner-result.json")
-
-
-@app.get("/api/latest-explanation")
-def latest_explanation():
-    output_file = OUTPUT_DIR / "latest_explanation.json"
-    if not output_file.exists():
-        return jsonify({"error": "No explanation has been saved yet."}), 404
-
-    return send_file(output_file, as_attachment=True, download_name="document-explanation.json")
 
 
 if __name__ == "__main__":

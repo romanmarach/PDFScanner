@@ -20,6 +20,7 @@ const summaryBlock = document.querySelector("#summaryBlock");
 const shortSummary = document.querySelector("#shortSummary");
 const bulletSummary = document.querySelector("#bulletSummary");
 
+let latestResult = null;
 let latestText = "";
 
 function setStatus(label, state = "") {
@@ -92,6 +93,7 @@ function renderAnalysis(result) {
 }
 
 function renderResult(result) {
+  latestResult = result;
   latestText = result.text || "";
   textOutput.value = latestText;
   resultMeta.textContent = result.fileName ? `Processed ${result.fileName}` : "Document processed.";
@@ -99,8 +101,20 @@ function renderResult(result) {
   charCount.textContent = String(result.characterCount || 0);
   modeLabel.textContent = result.mode === "full" ? "Analyze" : "Extract";
   copyButton.disabled = !latestText;
-  downloadLink.setAttribute("aria-disabled", "false");
+  downloadLink.disabled = false;
   renderAnalysis(result);
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 fileInput.addEventListener("change", updateFileLabel);
@@ -174,4 +188,12 @@ copyButton.addEventListener("click", async () => {
 
   await navigator.clipboard.writeText(latestText);
   setMessage("Extracted text copied.");
+});
+
+downloadLink.addEventListener("click", () => {
+  if (!latestResult) {
+    return;
+  }
+
+  downloadJson(latestResult, "pdfscanner-result.json");
 });
