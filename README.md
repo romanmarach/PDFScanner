@@ -12,7 +12,7 @@ and summarization.
 - Extract text from DOCX files
 - Process one file or an entire directory from the CLI
 - Classify and summarize documents with OpenAI
-- Download web results as JSON
+- Download explanations as PDF and web results as JSON
 
 ## Supported Files
 

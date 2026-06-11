@@ -116,17 +116,18 @@ def ocr_pdf(path: str) -> str:
 
     combined_pages: list[str] = []
     with fitz.open(path) as pdf:
-        for page_num in range(len(pdf)):
-            page = pdf[page_num]
-            pix = page.get_pixmap()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for page_num in range(len(pdf)):
+                page = pdf[page_num]
+                pix = page.get_pixmap()
 
-            temp_img = os.path.join(tempfile.gettempdir(), f"page_{page_num}.png")
-            pix.save(temp_img)
+                temp_img = os.path.join(temp_dir, f"page_{page_num}.png")
+                pix.save(temp_img)
 
-            output = ocr.predict(input=temp_img)
-            page_text = paddle_predict_to_text(output).strip()
-            if page_text:
-                combined_pages.append(page_text)
+                output = ocr.predict(input=temp_img)
+                page_text = paddle_predict_to_text(output).strip()
+                if page_text:
+                    combined_pages.append(page_text)
 
     return "\n\n".join(combined_pages)
 

@@ -15,6 +15,7 @@ const explanationContent = document.querySelector("#explanationContent");
 const summaryText = document.querySelector("#summaryText");
 const explanationText = document.querySelector("#explanationText");
 const warningSection = document.querySelector("#warningSection");
+const pdfButton = document.querySelector("#pdfButton");
 const copyButton = document.querySelector("#copyButton");
 const downloadLink = document.querySelector("#downloadLink");
 
@@ -113,6 +114,7 @@ function renderResult(result) {
 
   languageTabs.hidden = !result.translated;
   translatedTab.textContent = result.languageName || "Translation";
+  pdfButton.disabled = false;
   copyButton.disabled = false;
   downloadLink.disabled = false;
   renderExplanation();
@@ -150,6 +152,100 @@ function explanationAsText(explanation) {
   }
 
   return sections.filter(Boolean).join("\n\n");
+}
+
+function escapeHtml(value) {
+  const element = document.createElement("div");
+  element.textContent = value || "";
+  return element.innerHTML;
+}
+
+function printableList(values) {
+  const items = Array.isArray(values) && values.length ? values : ["None identified."];
+  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function printExplanation(explanation) {
+  const languageName = activeView === "translated"
+    ? latestResult.languageName
+    : "English";
+  const sourceName = latestResult.fileName || "document";
+  const title = explanation.document_type || "Document explanation";
+  const iframe = document.createElement("iframe");
+  iframe.hidden = true;
+  iframe.title = "Printable document explanation";
+  document.body.appendChild(iframe);
+
+  iframe.srcdoc = `<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>${escapeHtml(sourceName)} - explanation</title>
+        <style>
+          @page { margin: 18mm; }
+          body {
+            color: #1a1714;
+            font: 11pt/1.55 Arial, sans-serif;
+            margin: 0;
+          }
+          h1 { font-size: 22pt; margin: 0 0 4px; }
+          h2 {
+            border-bottom: 1px solid #d9d3ca;
+            font-size: 13pt;
+            margin: 22px 0 8px;
+            padding-bottom: 4px;
+          }
+          p { margin: 0 0 10px; white-space: pre-wrap; }
+          ul { margin: 0; padding-left: 22px; }
+          li { margin-bottom: 5px; }
+          .meta { color: #6b645c; margin-bottom: 24px; }
+          .summary {
+            background: #f4f1eb;
+            border-left: 4px solid #31543f;
+            padding: 12px 14px;
+          }
+          .warning { border-left: 4px solid #a65d36; padding-left: 12px; }
+          .disclaimer {
+            border-top: 1px solid #d9d3ca;
+            color: #6b645c;
+            font-size: 9pt;
+            margin-top: 28px;
+            padding-top: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="meta">${escapeHtml(sourceName)} | ${escapeHtml(languageName)}</p>
+        <h2>Summary</h2>
+        <p class="summary">${escapeHtml(explanation.summary)}</p>
+        <h2>What this document means</h2>
+        <p>${escapeHtml(explanation.explanation)}</p>
+        <h2>Important points</h2>
+        ${printableList(explanation.important_points)}
+        <h2>Actions required</h2>
+        ${printableList(explanation.actions_required)}
+        <h2>Important dates</h2>
+        ${printableList(explanation.important_dates)}
+        <h2>Amounts</h2>
+        ${printableList(explanation.amounts)}
+        <section class="warning">
+          <h2>Warnings and risks</h2>
+          ${printableList(explanation.warnings)}
+        </section>
+        <p class="disclaimer">
+          AI explanations can contain mistakes. Verify important legal, medical,
+          financial, or government information with a qualified professional.
+        </p>
+      </body>
+    </html>`;
+
+  iframe.addEventListener("load", () => {
+    const printWindow = iframe.contentWindow;
+    printWindow.addEventListener("afterprint", () => iframe.remove(), { once: true });
+    printWindow.focus();
+    printWindow.print();
+  }, { once: true });
 }
 
 fileInput.addEventListener("change", updateFileLabel);
@@ -231,6 +327,16 @@ copyButton.addEventListener("click", async () => {
 
   await navigator.clipboard.writeText(explanationAsText(explanation));
   setMessage("Explanation copied.");
+});
+
+pdfButton.addEventListener("click", () => {
+  const explanation = currentExplanation();
+  if (!explanation) {
+    return;
+  }
+
+  printExplanation(explanation);
+  setMessage("Choose Save as PDF in the print dialog.");
 });
 
 downloadLink.addEventListener("click", () => {

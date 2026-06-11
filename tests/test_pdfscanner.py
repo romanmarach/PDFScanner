@@ -13,6 +13,7 @@ The integration tests at the bottom are skipped unless you pass --run-integratio
 import io
 import json
 import os
+import tempfile
 import textwrap
 import types
 from pathlib import Path
@@ -201,7 +202,74 @@ class TestExtractTextRouting:
 
 
 # ---------------------------------------------------------------------------
-# 3. extract_docx
+# 3. ocr_pdf fallback
+# ---------------------------------------------------------------------------
+
+class TestOcrPdfFallback:
+    def test_rendered_pages_use_unique_directory_and_are_cleaned_up(self, monkeypatch):
+        import sys
+
+        fake_paddle = types.ModuleType("paddleocr")
+        fake_paddle.PaddleOCR = MagicMock(return_value=MagicMock())
+        sys.modules.setdefault("paddleocr", fake_paddle)
+
+        import agent.text_extraction as te
+
+        rendered_paths = []
+
+        class FakePixmap:
+            def save(self, path):
+                Path(path).write_bytes(b"rendered page")
+
+        class FakePage:
+            def get_pixmap(self):
+                return FakePixmap()
+
+        class FakePdf:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, index):
+                return FakePage()
+
+        fake_fitz = types.ModuleType("fitz")
+        fake_fitz.open = MagicMock(return_value=FakePdf())
+        monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+
+        fake_ocr = MagicMock()
+
+        def predict(*, input):
+            if input == "scan.pdf":
+                return []
+
+            rendered_path = Path(input)
+            assert rendered_path.exists()
+            rendered_paths.append(rendered_path)
+            page_number = int(rendered_path.stem.split("_")[-1]) + 1
+            return _fake_ocr_result([f"page {page_number}"])
+
+        fake_ocr.predict.side_effect = predict
+        monkeypatch.setattr(te, "ocr", fake_ocr)
+
+        first_result = te.ocr_pdf("scan.pdf")
+        second_result = te.ocr_pdf("scan.pdf")
+
+        assert first_result == "page 1\n\npage 2"
+        assert second_result == "page 1\n\npage 2"
+        temp_dirs = {path.parent for path in rendered_paths}
+        assert len(temp_dirs) == 2
+        assert all(temp_dir != Path(tempfile.gettempdir()) for temp_dir in temp_dirs)
+        assert all(not temp_dir.exists() for temp_dir in temp_dirs)
+
+
+# ---------------------------------------------------------------------------
+# 4. extract_docx
 # ---------------------------------------------------------------------------
 
 class TestExtractDocx:
@@ -339,6 +407,7 @@ class TestWebApp:
         resp = client.get("/")
         assert resp.status_code == 200
         assert b"Understand any" in resp.data
+        assert b"Download PDF" in resp.data
 
     def test_extract_page_returns_200(self, flask_client):
         client, _ = flask_client
