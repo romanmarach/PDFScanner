@@ -49,3 +49,16 @@ agent/
 # docker-compose run --rm pdfscanner data/samples/invoice_test.png
 # docker compose run --rm pdfscanner
 # npx @anthropic-ai/claude-code .
+
+
+ - Testing the full user experience: run Flask:
+    python web_app.py
+    Then open http://127.0.0.1:5000.
+    Then open http://127.0.0.1:5000.
+
+  - Quickly testing document processing: use the command line:
+
+
+  - Run automated tests after code changes:
+
+    python -m unittest discover tests

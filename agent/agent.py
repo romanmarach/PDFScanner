@@ -70,6 +70,7 @@ def main():
         print("Path not found")
         return
     
+    os.makedirs("./output", exist_ok=True)
     output_path = "./output/results.json"
 
     with open(output_path, "w", encoding="utf-8") as f:

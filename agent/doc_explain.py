@@ -1,8 +1,11 @@
 import json
 import os
 
+from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, Field
+
+load_dotenv()
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_EXPLAIN_MODEL", "gpt-5.4-mini")

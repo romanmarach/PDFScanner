@@ -3,7 +3,11 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _client() -> OpenAI:
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 def summarize_document(text: str):
     prompt = f"""
@@ -22,14 +26,11 @@ def summarize_document(text: str):
     {text[:4000]}
     """
 
-    response = client.chat.completions.create(
+    response = _client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "user", "content": prompt}
         ]
     )
 
-    
     return response.choices[0].message.content
-
-    

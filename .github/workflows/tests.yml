@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # paddlepaddle/paddleocr are intentionally not installed: the unit test
+      # suite stubs the paddleocr module in tests/conftest.py, so CI skips the
+      # multi-GB paddle download. Integration tests (--run-integration) are
+      # local-only.
+      - name: Install dependencies
+        run: pip install flask pdfplumber python-docx pymupdf openai pydantic python-dotenv pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -v

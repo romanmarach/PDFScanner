@@ -29,6 +29,9 @@ import pytest
 SAMPLES_DIR = Path(__file__).resolve().parent.parent / "data" / "samples"
 
 
+# The paddleocr module is stubbed in conftest.py before any test imports
+# agent.text_extraction, so unit tests never load the real model.
+
 def _fake_ocr_result(texts: list[str]):
     """Return a list of fake PaddleOCR result objects matching the 3.x API."""
     results = []
@@ -39,30 +42,6 @@ def _fake_ocr_result(texts: list[str]):
     return results
 
 
-@pytest.fixture()
-def mock_ocr(monkeypatch):
-    """
-    Patch PaddleOCR at import time so text_extraction can be imported
-    without actually loading the paddle model.
-    """
-    fake_ocr_instance = MagicMock()
-    fake_ocr_instance.predict.return_value = _fake_ocr_result(["mocked ocr line"])
-
-    fake_paddle_module = types.ModuleType("paddleocr")
-    fake_paddle_module.PaddleOCR = MagicMock(return_value=fake_ocr_instance)
-    monkeypatch.setitem(__import__("sys").modules, "paddleocr", fake_paddle_module)
-
-    # Also patch the module-level `ocr` object inside text_extraction if it's
-    # already been imported.
-    try:
-        import agent.text_extraction as te
-        monkeypatch.setattr(te, "ocr", fake_ocr_instance)
-    except ImportError:
-        pass
-
-    return fake_ocr_instance
-
-
 # ---------------------------------------------------------------------------
 # 1. paddle_predict_to_text
 # ---------------------------------------------------------------------------
@@ -71,11 +50,6 @@ class TestPaddlePredictToText:
     """Unit tests for the PaddleOCR output parser."""
 
     def _import(self):
-        """Import with paddle stubbed out."""
-        import sys
-        fake = types.ModuleType("paddleocr")
-        fake.PaddleOCR = MagicMock(return_value=MagicMock())
-        sys.modules.setdefault("paddleocr", fake)
         from agent.text_extraction import paddle_predict_to_text
         return paddle_predict_to_text
 
@@ -137,10 +111,6 @@ class TestExtractTextRouting:
     """Checks that extract_text calls the right sub-function per extension."""
 
     def _get_module(self, monkeypatch):
-        import sys
-        fake = types.ModuleType("paddleocr")
-        fake.PaddleOCR = MagicMock(return_value=MagicMock())
-        sys.modules.setdefault("paddleocr", fake)
         import agent.text_extraction as te
         monkeypatch.setattr(te, "ocr", MagicMock())
         return te
@@ -202,16 +172,46 @@ class TestExtractTextRouting:
 
 
 # ---------------------------------------------------------------------------
+# 2b. extract_pdf
+# ---------------------------------------------------------------------------
+
+class TestExtractPdf:
+    def _fake_pdf(self, page_texts):
+        pages = []
+        for text in page_texts:
+            page = MagicMock()
+            page.extract_text.return_value = text
+            pages.append(page)
+        fake_pdf = MagicMock()
+        fake_pdf.pages = pages
+        return fake_pdf
+
+    def test_pages_are_separated_by_blank_line(self):
+        from agent.text_extraction import extract_pdf
+
+        with patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf:
+            mock_open_pdf.return_value.__enter__.return_value = self._fake_pdf(
+                ["Page one", "Page two"]
+            )
+            assert extract_pdf("doc.pdf") == "Page one\n\nPage two"
+
+    def test_pages_without_text_become_empty_strings(self):
+        from agent.text_extraction import extract_pdf
+
+        with patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf:
+            mock_open_pdf.return_value.__enter__.return_value = self._fake_pdf(
+                ["Page one", None, "Page three"]
+            )
+            assert extract_pdf("doc.pdf") == "Page one\n\n\n\nPage three"
+
+
+# ---------------------------------------------------------------------------
 # 3. ocr_pdf fallback
 # ---------------------------------------------------------------------------
 
 class TestOcrPdfFallback:
     def test_rendered_pages_use_unique_directory_and_are_cleaned_up(self, monkeypatch):
         import sys
-
-        fake_paddle = types.ModuleType("paddleocr")
-        fake_paddle.PaddleOCR = MagicMock(return_value=MagicMock())
-        sys.modules.setdefault("paddleocr", fake_paddle)
 
         import agent.text_extraction as te
 
@@ -274,10 +274,6 @@ class TestOcrPdfFallback:
 
 class TestExtractDocx:
     def _get_fn(self, monkeypatch):
-        import sys
-        fake = types.ModuleType("paddleocr")
-        fake.PaddleOCR = MagicMock(return_value=MagicMock())
-        sys.modules.setdefault("paddleocr", fake)
         from agent.text_extraction import extract_docx
         return extract_docx
 
@@ -315,7 +311,7 @@ class TestClassifyDocument:
         fake_client = MagicMock()
         fake_client.chat.completions.create.return_value = fake_response
 
-        monkeypatch.setattr("agent.doc_classify.client", fake_client)
+        monkeypatch.setattr("agent.doc_classify._client", lambda: fake_client)
 
         result = classify_document("Invoice #1234 for $500")
         assert "invoice" in result
@@ -328,7 +324,7 @@ class TestClassifyDocument:
 
         fake_client = MagicMock()
         fake_client.chat.completions.create.return_value = fake_response
-        monkeypatch.setattr("agent.doc_classify.client", fake_client)
+        monkeypatch.setattr("agent.doc_classify._client", lambda: fake_client)
 
         long_text = "x" * 10_000
         classify_document(long_text)
@@ -355,7 +351,7 @@ class TestSummarizeDocument:
 
         fake_client = MagicMock()
         fake_client.chat.completions.create.return_value = fake_response
-        monkeypatch.setattr("agent.doc_summarize.client", fake_client)
+        monkeypatch.setattr("agent.doc_summarize._client", lambda: fake_client)
 
         result = summarize_document("Some document text")
         assert "short_summary" in result
@@ -367,7 +363,7 @@ class TestSummarizeDocument:
         fake_response.choices[0].message.content = "{}"
         fake_client = MagicMock()
         fake_client.chat.completions.create.return_value = fake_response
-        monkeypatch.setattr("agent.doc_summarize.client", fake_client)
+        monkeypatch.setattr("agent.doc_summarize._client", lambda: fake_client)
 
         long_text = "y" * 10_000
         summarize_document(long_text)
@@ -375,6 +371,74 @@ class TestSummarizeDocument:
         call_args = fake_client.chat.completions.create.call_args
         prompt_sent = call_args.kwargs["messages"][0]["content"]
         assert long_text[:4001] not in prompt_sent
+
+
+# ---------------------------------------------------------------------------
+# 5b. doc_explain
+# ---------------------------------------------------------------------------
+
+class TestDocExplain:
+    def _explanation(self):
+        from agent.doc_explain import DocumentExplanation
+        return DocumentExplanation(
+            document_type="Invoice",
+            summary="An invoice for services.",
+            explanation="The document requests payment.",
+            amounts=["$500"],
+        )
+
+    def _fake_client(self, parsed):
+        response = MagicMock()
+        response.output_parsed = parsed
+        fake_client = MagicMock()
+        fake_client.responses.parse.return_value = response
+        return fake_client
+
+    def test_explain_document_returns_dict(self, monkeypatch):
+        from agent import doc_explain
+
+        fake_client = self._fake_client(self._explanation())
+        monkeypatch.setattr(doc_explain, "_client", lambda: fake_client)
+
+        result = doc_explain.explain_document("some document text")
+
+        assert result["document_type"] == "Invoice"
+        assert result["amounts"] == ["$500"]
+        assert result["warnings"] == []
+        call_kwargs = fake_client.responses.parse.call_args.kwargs
+        assert call_kwargs["input"] == "some document text"
+
+    def test_explain_document_raises_without_parsed_output(self, monkeypatch):
+        from agent import doc_explain
+
+        fake_client = self._fake_client(None)
+        monkeypatch.setattr(doc_explain, "_client", lambda: fake_client)
+
+        with pytest.raises(ValueError):
+            doc_explain.explain_document("some text")
+
+    def test_translate_explanation_targets_language(self, monkeypatch):
+        from agent import doc_explain
+
+        fake_client = self._fake_client(self._explanation())
+        monkeypatch.setattr(doc_explain, "_client", lambda: fake_client)
+
+        original = self._explanation().model_dump()
+        result = doc_explain.translate_explanation(original, "Ukrainian")
+
+        assert result["document_type"] == "Invoice"
+        call_kwargs = fake_client.responses.parse.call_args.kwargs
+        assert "Ukrainian" in call_kwargs["instructions"]
+        assert json.loads(call_kwargs["input"]) == original
+
+    def test_translate_explanation_raises_without_parsed_output(self, monkeypatch):
+        from agent import doc_explain
+
+        fake_client = self._fake_client(None)
+        monkeypatch.setattr(doc_explain, "_client", lambda: fake_client)
+
+        with pytest.raises(ValueError):
+            doc_explain.translate_explanation({"summary": "x"}, "French")
 
 
 # ---------------------------------------------------------------------------
@@ -484,25 +548,74 @@ class TestWebApp:
 
     def test_extract_full_mode_calls_classify_and_summarize(self, flask_client, monkeypatch):
         client, tmp_path = flask_client
-        import web_app
 
         mock_classify = MagicMock(return_value='{"document_type":"invoice","confidence":90}')
-        mock_summarize = MagicMock(return_value='{"short_summary":"A bill.","bullet_points":[]}')
+        mock_summarize = MagicMock(return_value='{"short_summary":"A bill.","bullet_points":["Pay it."]}')
         monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="invoice text here"))
+        monkeypatch.setattr("agent.doc_classify.classify_document", mock_classify)
+        monkeypatch.setattr("agent.doc_summarize.summarize_document", mock_summarize)
 
-        with patch("agent.doc_classify.classify_document", mock_classify), \
-             patch("agent.doc_summarize.summarize_document", mock_summarize):
+        data = {
+            "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
+            "mode": "full",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
 
-            data = {
-                "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
-                "mode": "full",
-            }
-            resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
-
-        # Full mode response should include classification and summary keys
         assert resp.status_code == 200
         body = resp.get_json()
-        assert "classification" in body or resp.status_code == 200  # graceful if mocks don't chain perfectly
+        # JSON strings from the model should be parsed into objects
+        assert body["classification"] == {"document_type": "invoice", "confidence": 90}
+        assert body["summary"]["short_summary"] == "A bill."
+        assert body["summary"]["bullet_points"] == ["Pay it."]
+        mock_classify.assert_called_once_with("invoice text here")
+        mock_summarize.assert_called_once_with("invoice text here")
+
+    def test_extract_failure_returns_500_json_and_deletes_upload(self, flask_client, monkeypatch):
+        client, tmp_path = flask_client
+        monkeypatch.setattr(
+            "web_app.extract_text", MagicMock(side_effect=RuntimeError("ocr exploded"))
+        )
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 500
+        assert "error" in resp.get_json()
+        uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
+        assert uploads == [], "Upload must be deleted even when processing fails"
+
+    def test_extract_non_ascii_filename_succeeds(self, flask_client):
+        client, _ = flask_client
+        data = {
+            "file": (io.BytesIO(b"dummy"), "файл.pdf"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["text"] == "extracted text content"
+        # secure_filename strips the Cyrillic; a sane fallback name is used
+        assert body["fileName"].endswith(".pdf")
+
+    def test_oversized_upload_returns_json_413(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        monkeypatch.setitem(web_app.app.config, "MAX_CONTENT_LENGTH", 100)
+        data = {
+            "file": (io.BytesIO(b"x" * 1000), "big.pdf"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 413
+        body = resp.get_json()
+        assert body is not None, "413 responses must be JSON so the frontend can show them"
+        assert "error" in body
 
     def test_explain_no_file_returns_400(self, flask_client):
         client, _ = flask_client
@@ -527,6 +640,70 @@ class TestWebApp:
         }
         resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_explain_empty_text_returns_422(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="   \n  "))
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "blank.pdf"),
+            "language": "english",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 422
+        assert "error" in resp.get_json()
+
+    def test_explain_truncates_long_documents(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        long_text = "a" * (web_app.MAX_EXPLAIN_CHARS + 5000)
+        monkeypatch.setattr("web_app.extract_text", MagicMock(return_value=long_text))
+
+        explanation = {
+            "document_type": "Contract",
+            "summary": "A long contract.",
+            "explanation": "It is long.",
+            "important_points": [],
+            "actions_required": [],
+            "important_dates": [],
+            "amounts": [],
+            "warnings": [],
+        }
+        mock_explain = MagicMock(return_value=explanation)
+        monkeypatch.setattr("agent.doc_explain.explain_document", mock_explain)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "long.pdf"),
+            "language": "english",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["sourceWasTruncated"] is True
+        assert body["sourceCharacterCount"] == len(long_text)
+        sent_text = mock_explain.call_args.args[0]
+        assert len(sent_text) == web_app.MAX_EXPLAIN_CHARS
+
+    def test_explain_failure_returns_500_json_and_deletes_upload(self, flask_client, monkeypatch):
+        client, tmp_path = flask_client
+        monkeypatch.setattr(
+            "agent.doc_explain.explain_document",
+            MagicMock(side_effect=RuntimeError("api exploded")),
+        )
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "test.pdf"),
+            "language": "english",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 500
+        assert "error" in resp.get_json()
+        uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
+        assert uploads == [], "Upload must be deleted even when processing fails"
 
     def test_explain_english_skips_translation(self, flask_client, monkeypatch):
         client, _ = flask_client
@@ -641,14 +818,7 @@ class TestWebApp:
 # ---------------------------------------------------------------------------
 
 class TestAgent:
-    def _patch_deps(self, monkeypatch):
-        import sys
-        fake = types.ModuleType("paddleocr")
-        fake.PaddleOCR = MagicMock(return_value=MagicMock())
-        sys.modules.setdefault("paddleocr", fake)
-
     def test_process_single_file_extract_mode(self, monkeypatch, tmp_path):
-        self._patch_deps(monkeypatch)
         from agent.agent import process_single_file
 
         monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="hello world text"))
@@ -660,7 +830,6 @@ class TestAgent:
         assert "summary" not in result
 
     def test_process_single_file_full_mode(self, monkeypatch):
-        self._patch_deps(monkeypatch)
         from agent.agent import process_single_file
 
         monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="some text"))
@@ -673,7 +842,6 @@ class TestAgent:
         assert "summary" in result
 
     def test_main_file_not_found(self, monkeypatch, capsys):
-        self._patch_deps(monkeypatch)
         import agent.agent as ag
 
         monkeypatch.setattr("sys.argv", ["agent", "nonexistent_path"])
@@ -688,7 +856,6 @@ class TestAgent:
         assert "Path not found" in captured.out
 
     def test_main_processes_directory(self, monkeypatch, tmp_path):
-        self._patch_deps(monkeypatch)
         import agent.agent as ag
 
         (tmp_path / "a.png").write_bytes(b"fake")
@@ -700,6 +867,22 @@ class TestAgent:
             ag.main()
 
         assert ag.extract_text.call_count == 2
+
+    def test_main_creates_output_directory(self, monkeypatch, tmp_path):
+        """A fresh clone has no output/ folder; main() must create it."""
+        import agent.agent as ag
+
+        sample = tmp_path / "doc.png"
+        sample.write_bytes(b"fake")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["agent", str(sample)])
+        monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="real text"))
+
+        ag.main()
+
+        results = json.loads((tmp_path / "output" / "results.json").read_text(encoding="utf-8"))
+        assert results[0]["extracted_text"] == "real text"
+        assert (tmp_path / "output" / "extracted_text.txt").exists()
 
 
 # ---------------------------------------------------------------------------

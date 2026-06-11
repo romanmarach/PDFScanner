@@ -33,6 +33,24 @@ def allowed_file(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
+def upload_names(filename: str) -> tuple[str, str]:
+    """Return a display name and a unique on-disk name for an upload.
+
+    The suffix comes from the raw filename because secure_filename() strips
+    non-ASCII characters and can drop the extension entirely (e.g. "файл.pdf").
+    """
+    suffix = Path(filename).suffix.lower()
+    display_name = secure_filename(filename)
+    if not Path(display_name).suffix:
+        display_name = f"document{suffix}"
+    return display_name, f"{uuid.uuid4().hex}{suffix}"
+
+
+@app.errorhandler(413)
+def upload_too_large(error):
+    return jsonify({"error": "File is larger than the 25 MB upload limit."}), 413
+
+
 def parse_jsonish(value):
     if not isinstance(value, str):
         return value
@@ -69,9 +87,7 @@ def extract_document():
 
     UPLOAD_DIR.mkdir(exist_ok=True)
 
-    original_name = secure_filename(uploaded_file.filename)
-    suffix = Path(original_name).suffix.lower()
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
+    original_name, stored_name = upload_names(uploaded_file.filename)
     stored_path = UPLOAD_DIR / stored_name
     uploaded_file.save(stored_path)
 
@@ -119,9 +135,8 @@ def explain_uploaded_document():
 
     UPLOAD_DIR.mkdir(exist_ok=True)
 
-    original_name = secure_filename(uploaded_file.filename)
-    suffix = Path(original_name).suffix.lower()
-    stored_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
+    original_name, stored_name = upload_names(uploaded_file.filename)
+    stored_path = UPLOAD_DIR / stored_name
     uploaded_file.save(stored_path)
 
     try:
