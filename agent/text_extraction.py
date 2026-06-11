@@ -42,11 +42,8 @@ def extract_text(file_path: str) -> str:
 
 def extract_pdf(path: str) -> str:
     """Extract text from a normal PDF (no OCR)."""
-    text = ""
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
+        return "\n\n".join(page.extract_text() or "" for page in pdf.pages)
 
 
 def paddle_predict_to_text(predict_output) -> str:
