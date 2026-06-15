@@ -153,24 +153,6 @@ class TestExtractTextRouting:
         with pytest.raises(ValueError, match="Unsupported file type"):
             te.extract_text("data.xlsx")
 
-    def test_scanned_pdf_falls_back_to_ocr(self, monkeypatch):
-        """extract_pdf returns < 20 chars → should call ocr_pdf instead."""
-        te = self._get_module(monkeypatch)
-        monkeypatch.setattr(te, "extract_pdf", MagicMock(return_value="short"))
-        monkeypatch.setattr(te, "ocr_pdf", MagicMock(return_value="ocr fallback text"))
-        result = te.extract_text("scanned.pdf")
-        te.ocr_pdf.assert_called_once_with("scanned.pdf")
-        assert result == "ocr fallback text"
-
-    def test_pdf_with_enough_text_skips_ocr(self, monkeypatch):
-        te = self._get_module(monkeypatch)
-        long_text = "a" * 25
-        monkeypatch.setattr(te, "extract_pdf", MagicMock(return_value=long_text))
-        monkeypatch.setattr(te, "ocr_pdf", MagicMock())
-        te.extract_text("normal.pdf")
-        te.ocr_pdf.assert_not_called()
-
-
 # ---------------------------------------------------------------------------
 # 2b. extract_pdf
 # ---------------------------------------------------------------------------
@@ -189,20 +171,47 @@ class TestExtractPdf:
     def test_pages_are_separated_by_blank_line(self):
         from agent.text_extraction import extract_pdf
 
-        with patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf:
+        with (
+            patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf,
+            patch("agent.text_extraction.ocr_pdf_pages") as mock_ocr,
+        ):
             mock_open_pdf.return_value.__enter__.return_value = self._fake_pdf(
-                ["Page one", "Page two"]
+                ["Page one has enough embedded text", "Page two also has enough text"]
             )
-            assert extract_pdf("doc.pdf") == "Page one\n\nPage two"
+            assert extract_pdf("doc.pdf") == (
+                "Page one has enough embedded text\n\nPage two also has enough text"
+            )
+            mock_ocr.assert_not_called()
 
-    def test_pages_without_text_become_empty_strings(self):
+    def test_mixed_pdf_ocrs_only_pages_with_little_text(self):
         from agent.text_extraction import extract_pdf
 
-        with patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf:
+        with (
+            patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf,
+            patch(
+                "agent.text_extraction.ocr_pdf_pages",
+                return_value={1: "OCR text from scanned page"},
+            ) as mock_ocr,
+        ):
             mock_open_pdf.return_value.__enter__.return_value = self._fake_pdf(
-                ["Page one", None, "Page three"]
+                ["Digital cover page with selectable text", "watermark", "Another digital page"]
             )
-            assert extract_pdf("doc.pdf") == "Page one\n\n\n\nPage three"
+            assert extract_pdf("doc.pdf") == (
+                "Digital cover page with selectable text\n\n"
+                "OCR text from scanned page\n\n"
+                "Another digital page"
+            )
+            mock_ocr.assert_called_once_with("doc.pdf", [1])
+
+    def test_keeps_short_embedded_text_when_ocr_returns_empty(self):
+        from agent.text_extraction import extract_pdf
+
+        with (
+            patch("agent.text_extraction.pdfplumber.open") as mock_open_pdf,
+            patch("agent.text_extraction.ocr_pdf_pages", return_value={0: ""}),
+        ):
+            mock_open_pdf.return_value.__enter__.return_value = self._fake_pdf(["Short title"])
+            assert extract_pdf("doc.pdf") == "Short title"
 
 
 # ---------------------------------------------------------------------------
@@ -245,9 +254,6 @@ class TestOcrPdfFallback:
         fake_ocr = MagicMock()
 
         def predict(*, input):
-            if input == "scan.pdf":
-                return []
-
             rendered_path = Path(input)
             assert rendered_path.exists()
             rendered_paths.append(rendered_path)
@@ -883,6 +889,61 @@ class TestAgent:
         results = json.loads((tmp_path / "output" / "results.json").read_text(encoding="utf-8"))
         assert results[0]["extracted_text"] == "real text"
         assert (tmp_path / "output" / "extracted_text.txt").exists()
+
+    def test_main_skips_unsupported_files_in_directory(self, monkeypatch, tmp_path, capsys):
+        import agent.agent as ag
+
+        input_dir = tmp_path / "documents"
+        input_dir.mkdir()
+        (input_dir / "invoice.pdf").write_bytes(b"fake")
+        (input_dir / "notes.txt").write_text("not supported", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["agent", str(input_dir)])
+        monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="invoice text"))
+
+        ag.main()
+
+        results = json.loads((tmp_path / "output" / "results.json").read_text(encoding="utf-8"))
+        captured = capsys.readouterr()
+        assert len(results) == 1
+        assert results[0]["file"].endswith("invoice.pdf")
+        assert ag.extract_text.call_count == 1
+        assert "Skipped notes.txt: unsupported file type" in captured.out
+        assert "1 processed, 1 skipped, 0 failed" in captured.out
+
+    def test_main_continues_after_file_failure(self, monkeypatch, tmp_path, capsys):
+        import agent.agent as ag
+
+        input_dir = tmp_path / "documents"
+        input_dir.mkdir()
+        (input_dir / "bad.pdf").write_bytes(b"bad")
+        (input_dir / "good.pdf").write_bytes(b"good")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("sys.argv", ["agent", str(input_dir)])
+
+        def extract_with_one_failure(path):
+            if path.endswith("bad.pdf"):
+                raise RuntimeError("corrupt document")
+            return "good text"
+
+        monkeypatch.setattr("agent.agent.extract_text", MagicMock(side_effect=extract_with_one_failure))
+
+        ag.main()
+
+        results = json.loads((tmp_path / "output" / "results.json").read_text(encoding="utf-8"))
+        captured = capsys.readouterr()
+        assert len(results) == 2
+        assert results[0]["file"].endswith("bad.pdf")
+        assert results[0]["error"] == "RuntimeError: corrupt document"
+        assert "extracted_text" not in results[0]
+        assert results[1]["file"].endswith("good.pdf")
+        assert results[1]["extracted_text"] == "good text"
+        assert ag.extract_text.call_count == 2
+        assert "Failed bad.pdf: RuntimeError: corrupt document" in captured.out
+        assert "1 processed, 0 skipped, 1 failed" in captured.out
+        extracted_txt = (tmp_path / "output" / "extracted_text.txt").read_text(encoding="utf-8")
+        assert "good.pdf" in extracted_txt
+        assert "bad.pdf" not in extracted_txt
 
 
 # ---------------------------------------------------------------------------

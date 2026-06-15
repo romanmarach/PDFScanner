@@ -1,12 +1,10 @@
-from .text_extraction import extract_text
+from .text_extraction import EXTRACTABLE_EXTENSIONS, extract_text
 from .doc_classify import classify_document
 from .doc_summarize import summarize_document
-import argparse 
+import argparse
 import sys
 import os
 import json
-
-#D:\Personal\projects\pdfScanner
 
 def process_single_file(file_path, mode):
     print("📄 Extracting text from:", file_path)
@@ -51,6 +49,8 @@ def main():
                         help="extract = text only, full = text +classify and summarize")
     args = parser.parse_args()
     results = []
+    skipped = 0
+    failed = 0
 
     file_path = args.path
     mode = args.mode
@@ -60,12 +60,24 @@ def main():
         results.append(result)
 
     elif os.path.isdir(file_path):
-        for filename in os.listdir(file_path):
+        for filename in sorted(os.listdir(file_path)):
             full_path = os.path.join(file_path, filename)
-            if os.path.isfile(full_path):
-                result = process_single_file(full_path, mode)       
+            if not os.path.isfile(full_path):
+                continue
+
+            extension = os.path.splitext(filename)[1].lower()
+            if extension not in EXTRACTABLE_EXTENSIONS:
+                print(f"Skipped {filename}: unsupported file type")
+                skipped += 1
+                continue
+
+            try:
+                result = process_single_file(full_path, mode)
                 results.append(result)
-          # save all results
+            except Exception as exc:
+                print(f"Failed {filename}: {type(exc).__name__}: {exc}")
+                results.append({"file": full_path, "error": f"{type(exc).__name__}: {exc}"})
+                failed += 1
     else:
         print("Path not found")
         return
@@ -81,17 +93,17 @@ def main():
     txt_path = "./output/extracted_text.txt"
     with open(txt_path, "w", encoding="utf-8") as f:
         for result in results:
+            if "error" in result:
+                continue
             f.write(f"===== File: {result['file']} =====\n")
             f.write(result["extracted_text"])
             f.write("\n\n")
 
-
-
-    
- 
-#======================================================================
-
-   
+    if os.path.isdir(file_path):
+        print(
+            f"\nBatch complete: {len(results) - failed} processed, "
+            f"{skipped} skipped, {failed} failed."
+        )
 
 # run with python -m agent data/samples/invoice_test.png
 # docker-compose run pdfscanner data/samples/invoice_test.png

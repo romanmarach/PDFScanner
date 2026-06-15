@@ -20,6 +20,9 @@ const summaryBlock = document.querySelector("#summaryBlock");
 const shortSummary = document.querySelector("#shortSummary");
 const bulletSummary = document.querySelector("#bulletSummary");
 
+const MAX_UPLOAD_BYTES = Number(uploadForm.dataset.maxUpload) || 25 * 1024 * 1024;
+const MAX_UPLOAD_MB = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+
 let latestResult = null;
 let latestText = "";
 
@@ -38,17 +41,38 @@ function updateFileLabel() {
 
   if (!file) {
     dropTitle.textContent = "Drop file here or browse";
-    fileMeta.textContent = "PDF, PNG, JPG, JPEG, DOCX up to 25 MB";
+    fileMeta.textContent = `PDF, PNG, JPG, JPEG, DOCX up to ${MAX_UPLOAD_MB} MB`;
+    dropZone.classList.remove("error");
+    submitButton.disabled = false;
+    submitButton.title = "";
     return;
   }
 
   const sizeMb = file.size / (1024 * 1024);
   dropTitle.textContent = file.name;
-  fileMeta.textContent = `${sizeMb.toFixed(2)} MB`;
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    fileMeta.textContent = `${sizeMb.toFixed(2)} MB — too large. Click here or drop a smaller file.`;
+    dropZone.classList.add("error");
+    setMessage(`This file is larger than the ${MAX_UPLOAD_MB} MB upload limit. Choose a smaller file.`, true);
+    submitButton.disabled = true;
+    submitButton.title = `File exceeds the ${MAX_UPLOAD_MB} MB upload limit`;
+  } else {
+    fileMeta.textContent = `${sizeMb.toFixed(2)} MB`;
+    dropZone.classList.remove("error");
+    setMessage("");
+    submitButton.disabled = false;
+    submitButton.title = "";
+  }
+}
+
+function fileTooLarge() {
+  const file = fileInput.files[0];
+  return Boolean(file) && file.size > MAX_UPLOAD_BYTES;
 }
 
 function setLoading(isLoading) {
-  submitButton.disabled = isLoading;
+  submitButton.disabled = isLoading || fileTooLarge();
   submitButton.querySelector("span").textContent = isLoading ? "Processing..." : "Run OCR";
   setStatus(isLoading ? "Processing" : "Ready", isLoading ? "busy" : "");
 }
@@ -150,6 +174,11 @@ uploadForm.addEventListener("submit", async (event) => {
 
   if (!fileInput.files[0]) {
     setMessage("Choose a file before running OCR.", true);
+    return;
+  }
+
+  if (fileInput.files[0].size > MAX_UPLOAD_BYTES) {
+    setMessage(`This file is larger than the ${MAX_UPLOAD_MB} MB upload limit. Choose a smaller file.`, true);
     return;
   }
 

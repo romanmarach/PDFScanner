@@ -6,12 +6,12 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from agent.text_extraction import extract_text
+from agent.text_extraction import EXTRACTABLE_EXTENSIONS, extract_text
 
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".docx"}
+ALLOWED_EXTENSIONS = EXTRACTABLE_EXTENSIONS
 ALLOWED_LANGUAGES = {
     "english": "English",
     "ukrainian": "Ukrainian",
@@ -23,10 +23,12 @@ ALLOWED_LANGUAGES = {
     "russian": "Russian",
 }
 MAX_EXPLAIN_CHARS = 60_000
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
 
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 
 def allowed_file(filename: str) -> bool:
@@ -48,7 +50,7 @@ def upload_names(filename: str) -> tuple[str, str]:
 
 @app.errorhandler(413)
 def upload_too_large(error):
-    return jsonify({"error": "File is larger than the 25 MB upload limit."}), 413
+    return jsonify({"error": f"File is larger than the {MAX_UPLOAD_MB} MB upload limit."}), 413
 
 
 def parse_jsonish(value):
@@ -63,12 +65,16 @@ def parse_jsonish(value):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html", max_upload_bytes=MAX_UPLOAD_BYTES, max_upload_mb=MAX_UPLOAD_MB
+    )
 
 
 @app.get("/extract")
 def extractor():
-    return render_template("extract.html")
+    return render_template(
+        "extract.html", max_upload_bytes=MAX_UPLOAD_BYTES, max_upload_mb=MAX_UPLOAD_MB
+    )
 
 
 @app.post("/api/extract")

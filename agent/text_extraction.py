@@ -5,6 +5,12 @@ import docx
 from paddleocr import PaddleOCR
 os.environ["PADDLE_PDX_MODEL_SOURCE_CHECK"] = "True"
 
+# Source of truth for what extract_text() can handle. The CLI and web app
+# derive their accepted-file lists from this; the web app may expose a
+# subset, but must never accept an extension that is not in this set.
+EXTRACTABLE_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".docx"})
+MIN_PAGE_TEXT_CHARS = 20
+
 
 # PaddleOCR 3.x init (cls/use_angle_cls is replaced by use_textline_orientation)
 ocr = PaddleOCR(
@@ -21,14 +27,7 @@ def extract_text(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".pdf":
-        text = extract_pdf(file_path)
-
-        # If PDF text is empty → fallback to OCR
-        if len(text.strip()) < 20:
-            print("⚠️ PDF appears scanned — using OCR fallback...")
-            text = ocr_pdf(file_path)
-
-        return text
+        return extract_pdf(file_path)
 
     elif ext in [".jpg", ".jpeg", ".png"]:
         return ocr_image(file_path)
@@ -41,9 +40,27 @@ def extract_text(file_path: str) -> str:
 
 
 def extract_pdf(path: str) -> str:
-    """Extract text from a normal PDF (no OCR)."""
+    """Extract each PDF page, using OCR only for pages with little embedded text."""
     with pdfplumber.open(path) as pdf:
-        return "\n\n".join(page.extract_text() or "" for page in pdf.pages)
+        page_texts = [page.extract_text() or "" for page in pdf.pages]
+
+    pages_needing_ocr = [
+        page_num
+        for page_num, text in enumerate(page_texts)
+        if len(text.strip()) < MIN_PAGE_TEXT_CHARS
+    ]
+
+    if pages_needing_ocr:
+        print(
+            f"PDF has {len(pages_needing_ocr)} page(s) with little embedded text; "
+            "using OCR for those pages..."
+        )
+        ocr_texts = ocr_pdf_pages(path, pages_needing_ocr)
+        for page_num, ocr_text in ocr_texts.items():
+            if ocr_text.strip():
+                page_texts[page_num] = ocr_text
+
+    return "\n\n".join(page_texts)
 
 
 def paddle_predict_to_text(predict_output) -> str:
@@ -85,25 +102,8 @@ def ocr_image(path: str) -> str:
     return paddle_predict_to_text(output)
 
 
-def ocr_pdf(path: str) -> str:
-    """
-    OCR for PDFs using PaddleOCR 3.x.
-    1) Try passing the PDF path directly to ocr.predict()
-    2) If that fails / returns empty, render pages with PyMuPDF and OCR images
-    """
-    print("Extracting from OCR PDF (PaddleOCR predict)")
-
-    # Attempt 1: direct PDF OCR
-    try:
-        output = ocr.predict(input=path)
-        text = paddle_predict_to_text(output)
-        if text.strip():
-            return text
-        print("⚠️ Direct PDF OCR returned empty — falling back to page rendering...")
-    except Exception as e:
-        print(f"⚠️ Direct PDF OCR failed ({type(e).__name__}: {e}) — falling back to page rendering...")
-
-    # Attempt 2: render pages to images (fallback)
+def ocr_pdf_pages(path: str, page_numbers) -> dict[int, str]:
+    """Render and OCR selected zero-based PDF page numbers."""
     try:
         import fitz  # PyMuPDF
     except ImportError as e:
@@ -111,10 +111,16 @@ def ocr_pdf(path: str) -> str:
             "PyMuPDF is required for OCR fallback on PDFs. Install it with: pip install pymupdf"
         ) from e
 
-    combined_pages: list[str] = []
+    requested_pages = set(page_numbers)
+    page_texts: dict[int, str] = {}
+
     with fitz.open(path) as pdf:
+        invalid_pages = requested_pages.difference(range(len(pdf)))
+        if invalid_pages:
+            raise ValueError(f"PDF page numbers out of range: {sorted(invalid_pages)}")
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            for page_num in range(len(pdf)):
+            for page_num in sorted(requested_pages):
                 page = pdf[page_num]
                 pix = page.get_pixmap()
 
@@ -122,11 +128,25 @@ def ocr_pdf(path: str) -> str:
                 pix.save(temp_img)
 
                 output = ocr.predict(input=temp_img)
-                page_text = paddle_predict_to_text(output).strip()
-                if page_text:
-                    combined_pages.append(page_text)
+                page_texts[page_num] = paddle_predict_to_text(output).strip()
 
-    return "\n\n".join(combined_pages)
+    return page_texts
+
+
+def ocr_pdf(path: str) -> str:
+    """Render and OCR every page in a PDF."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as e:
+        raise ImportError(
+            "PyMuPDF is required for OCR fallback on PDFs. Install it with: pip install pymupdf"
+        ) from e
+
+    with fitz.open(path) as pdf:
+        page_numbers = list(range(len(pdf)))
+
+    page_texts = ocr_pdf_pages(path, page_numbers)
+    return "\n\n".join(page_texts[page_num] for page_num in page_numbers)
 
 
 def extract_docx(path: str) -> str:

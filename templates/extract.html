@@ -36,7 +36,7 @@
         <p>Extract readable text from PDFs, images, and Word documents with optional classification and summaries.</p>
       </section>
 
-      <form class="upload-card" id="uploadForm">
+      <form class="upload-card" id="uploadForm" data-max-upload="{{ max_upload_bytes }}">
         <label class="upload-zone" id="dropZone">
           <input id="fileInput" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx">
           <span class="upload-icon" aria-hidden="true">
@@ -45,7 +45,7 @@
             </svg>
           </span>
           <span class="upload-label" id="dropTitle">Drop file here or browse</span>
-          <span class="upload-hint" id="fileMeta">PDF, PNG, JPG, JPEG, DOCX up to 25 MB</span>
+          <span class="upload-hint" id="fileMeta">PDF, PNG, JPG, JPEG, DOCX up to {{ max_upload_mb }} MB</span>
         </label>
 
         <div class="control-row">
