@@ -35,8 +35,10 @@ def explain_document(text: str) -> dict:
             "Use only facts found in the document. Preserve names, dates, amounts, "
             "addresses, account numbers, and legal references exactly. Identify "
             "required actions and meaningful risks, but do not provide professional "
-            "legal, medical, or financial advice. Use empty lists when a category "
-            "does not apply."
+            "legal, medical, or financial advice. If the document appears to be a "
+            "blank or mostly empty form meant to be filled out, clearly say that in "
+            "the summary and explanation, and describe the type of information the "
+            "form requests. Use empty lists when a category does not apply."
         ),
         input=text,
         text_format=DocumentExplanation,

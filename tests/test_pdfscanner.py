@@ -413,6 +413,7 @@ class TestDocExplain:
         assert result["warnings"] == []
         call_kwargs = fake_client.responses.parse.call_args.kwargs
         assert call_kwargs["input"] == "some document text"
+        assert "blank or mostly empty form" in call_kwargs["instructions"]
 
     def test_explain_document_raises_without_parsed_output(self, monkeypatch):
         from agent import doc_explain

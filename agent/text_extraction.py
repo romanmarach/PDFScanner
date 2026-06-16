@@ -146,6 +146,12 @@ def ocr_pdf(path: str) -> str:
         page_numbers = list(range(len(pdf)))
 
     page_texts = ocr_pdf_pages(path, page_numbers)
+  # Technical debt: PDF pages are currently rendered at PyMuPDF's default
+  # resolution (about 72 DPI) before OCR. Increasing the render scale with
+  # fitz.Matrix(2, 2) or a configurable DPI may improve recognition of small,
+  # faint, or low-quality text, but it also increases processing time and memory
+  # usage. Current OCR accuracy is acceptable, so treat this as a future
+  # accuracy/performance option rather than a bug.
     return "\n\n".join(page_texts[page_num] for page_num in page_numbers)
 
 
