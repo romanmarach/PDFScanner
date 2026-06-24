@@ -14,12 +14,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      # paddlepaddle/paddleocr are intentionally not installed: the unit test
-      # suite stubs the paddleocr module in tests/conftest.py, so CI skips the
-      # multi-GB paddle download. Integration tests (--run-integration) are
-      # local-only.
+      # paddlepaddle/paddleocr are intentionally skipped: the unit test suite
+      # stubs paddleocr in tests/conftest.py, so CI avoids the heavy OCR install.
+      # Integration tests (--run-integration) are local-only.
       - name: Install dependencies
-        run: pip install flask pdfplumber python-docx pymupdf openai pydantic python-dotenv pytest
+        run: grep -Ev '^(paddle(paddle|ocr)|#|$)' requirements.txt | xargs python -m pip install
 
       - name: Run tests
         run: python -m pytest tests/ -v

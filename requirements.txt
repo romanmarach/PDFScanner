@@ -1,13 +1,10 @@
 pymupdf
-pytesseract
-pillow
 pdfplumber
 python-docx
-pyyaml
-openpyxl
 openai
+pydantic
 python-dotenv
 flask
 paddlepaddle==3.2.2
-paddleocr>=2.9.0
+paddleocr>=3.0.0,<4.0.0
 pytest
