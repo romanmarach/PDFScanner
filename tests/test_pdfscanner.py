@@ -308,37 +308,55 @@ class TestExtractDocx:
 # ---------------------------------------------------------------------------
 
 class TestClassifyDocument:
-    def test_returns_openai_content(self, monkeypatch):
-        from agent.doc_classify import classify_document
+    def test_returns_parsed_classification(self, monkeypatch):
+        from agent.doc_classify import DocumentClassification, classify_document
 
         fake_response = MagicMock()
-        fake_response.choices[0].message.content = '{"document_type": "invoice", "confidence": 95}'
+        fake_response.output_parsed = DocumentClassification(
+            document_type="invoice",
+            confidence=95,
+        )
 
         fake_client = MagicMock()
-        fake_client.chat.completions.create.return_value = fake_response
+        fake_client.responses.parse.return_value = fake_response
 
         monkeypatch.setattr("agent.doc_classify._client", lambda: fake_client)
 
         result = classify_document("Invoice #1234 for $500")
-        assert "invoice" in result
+        assert result == {"document_type": "invoice", "confidence": 95}
+        call_kwargs = fake_client.responses.parse.call_args.kwargs
+        assert call_kwargs["text_format"] is DocumentClassification
 
     def test_truncates_text_to_3000_chars(self, monkeypatch):
-        from agent.doc_classify import classify_document
+        from agent.doc_classify import DocumentClassification, classify_document
 
         fake_response = MagicMock()
-        fake_response.choices[0].message.content = '{"document_type": "other", "confidence": 50}'
+        fake_response.output_parsed = DocumentClassification(
+            document_type="other",
+            confidence=50,
+        )
 
         fake_client = MagicMock()
-        fake_client.chat.completions.create.return_value = fake_response
+        fake_client.responses.parse.return_value = fake_response
         monkeypatch.setattr("agent.doc_classify._client", lambda: fake_client)
 
         long_text = "x" * 10_000
         classify_document(long_text)
 
-        call_args = fake_client.chat.completions.create.call_args
-        prompt_sent = call_args.kwargs["messages"][0]["content"]
-        # The text embedded in the prompt must be capped at 3000 chars
-        assert long_text[:3001] not in prompt_sent
+        call_args = fake_client.responses.parse.call_args
+        assert call_args.kwargs["input"] == long_text[:3000]
+
+    def test_raises_without_parsed_classification(self, monkeypatch):
+        from agent.doc_classify import classify_document
+
+        fake_response = MagicMock()
+        fake_response.output_parsed = None
+        fake_client = MagicMock()
+        fake_client.responses.parse.return_value = fake_response
+        monkeypatch.setattr("agent.doc_classify._client", lambda: fake_client)
+
+        with pytest.raises(ValueError, match="classification model"):
+            classify_document("some document text")
 
 
 # ---------------------------------------------------------------------------
@@ -346,37 +364,56 @@ class TestClassifyDocument:
 # ---------------------------------------------------------------------------
 
 class TestSummarizeDocument:
-    def test_returns_openai_content(self, monkeypatch):
-        from agent.doc_summarize import summarize_document
+    def test_returns_parsed_summary(self, monkeypatch):
+        from agent.doc_summarize import DocumentSummary, summarize_document
 
         fake_response = MagicMock()
-        fake_response.choices[0].message.content = json.dumps({
-            "short_summary": "A test document.",
-            "bullet_points": ["Point A", "Point B"],
-        })
+        fake_response.output_parsed = DocumentSummary(
+            short_summary="A test document.",
+            bullet_points=["Point A", "Point B"],
+        )
 
         fake_client = MagicMock()
-        fake_client.chat.completions.create.return_value = fake_response
+        fake_client.responses.parse.return_value = fake_response
         monkeypatch.setattr("agent.doc_summarize._client", lambda: fake_client)
 
         result = summarize_document("Some document text")
-        assert "short_summary" in result
+        assert result == {
+            "short_summary": "A test document.",
+            "bullet_points": ["Point A", "Point B"],
+        }
+        call_kwargs = fake_client.responses.parse.call_args.kwargs
+        assert call_kwargs["text_format"] is DocumentSummary
 
     def test_truncates_text_to_4000_chars(self, monkeypatch):
-        from agent.doc_summarize import summarize_document
+        from agent.doc_summarize import DocumentSummary, summarize_document
 
         fake_response = MagicMock()
-        fake_response.choices[0].message.content = "{}"
+        fake_response.output_parsed = DocumentSummary(
+            short_summary="Short.",
+            bullet_points=[],
+        )
         fake_client = MagicMock()
-        fake_client.chat.completions.create.return_value = fake_response
+        fake_client.responses.parse.return_value = fake_response
         monkeypatch.setattr("agent.doc_summarize._client", lambda: fake_client)
 
         long_text = "y" * 10_000
         summarize_document(long_text)
 
-        call_args = fake_client.chat.completions.create.call_args
-        prompt_sent = call_args.kwargs["messages"][0]["content"]
-        assert long_text[:4001] not in prompt_sent
+        call_args = fake_client.responses.parse.call_args
+        assert call_args.kwargs["input"] == long_text[:4000]
+
+    def test_raises_without_parsed_summary(self, monkeypatch):
+        from agent.doc_summarize import summarize_document
+
+        fake_response = MagicMock()
+        fake_response.output_parsed = None
+        fake_client = MagicMock()
+        fake_client.responses.parse.return_value = fake_response
+        monkeypatch.setattr("agent.doc_summarize._client", lambda: fake_client)
+
+        with pytest.raises(ValueError, match="summary model"):
+            summarize_document("some document text")
 
 
 # ---------------------------------------------------------------------------
@@ -466,10 +503,81 @@ def flask_client(monkeypatch, tmp_path):
     import web_app
     monkeypatch.setattr("web_app.UPLOAD_DIR", tmp_path / "uploads")
     monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="extracted text content"))
+    monkeypatch.setattr("web_app.validate_pdf_page_count", MagicMock())
+    monkeypatch.setattr(web_app.limiter, "enabled", False)
+    web_app.limiter.reset()
 
     web_app.app.config["TESTING"] = True
     with web_app.app.test_client() as client:
         yield client, tmp_path
+
+
+class TestWebPdfPageValidation:
+    def test_validate_pdf_page_count_allows_pdf_at_limit(self, monkeypatch, tmp_path):
+        import sys
+        import web_app
+
+        class FakePdf:
+            page_count = web_app.MAX_PDF_PAGES
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        fake_fitz = types.ModuleType("fitz")
+        fake_fitz.FileDataError = RuntimeError
+        fake_fitz.open = MagicMock(return_value=FakePdf())
+        monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+
+        pdf_path = tmp_path / "doc.pdf"
+        pdf_path.write_bytes(b"dummy")
+
+        web_app.validate_pdf_page_count(pdf_path)
+        fake_fitz.open.assert_called_once_with(pdf_path)
+
+    def test_validate_pdf_page_count_rejects_pdf_over_limit(self, monkeypatch, tmp_path):
+        import sys
+        import web_app
+
+        class FakePdf:
+            page_count = web_app.MAX_PDF_PAGES + 1
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        fake_fitz = types.ModuleType("fitz")
+        fake_fitz.FileDataError = RuntimeError
+        fake_fitz.open = MagicMock(return_value=FakePdf())
+        monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+
+        pdf_path = tmp_path / "doc.pdf"
+        pdf_path.write_bytes(b"dummy")
+
+        with pytest.raises(web_app.PdfPageLimitError, match="limited"):
+            web_app.validate_pdf_page_count(pdf_path)
+
+    def test_validate_pdf_page_count_rejects_unreadable_pdf(self, monkeypatch, tmp_path):
+        import sys
+        import web_app
+
+        class FakeFileDataError(Exception):
+            pass
+
+        fake_fitz = types.ModuleType("fitz")
+        fake_fitz.FileDataError = FakeFileDataError
+        fake_fitz.open = MagicMock(side_effect=FakeFileDataError("bad pdf"))
+        monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+
+        pdf_path = tmp_path / "corrupt.pdf"
+        pdf_path.write_bytes(b"not a pdf")
+
+        with pytest.raises(web_app.PdfValidationError, match="corrupt or unreadable"):
+            web_app.validate_pdf_page_count(pdf_path)
 
 
 class TestWebApp:
@@ -511,6 +619,31 @@ class TestWebApp:
         }
         resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_extract_rejects_pdf_over_page_limit_before_ocr(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        mock_validate = MagicMock(
+            side_effect=web_app.PdfPageLimitError(
+                "PDFs are limited to 20 pages. This PDF has 21 pages."
+            )
+        )
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.validate_pdf_page_count", mock_validate)
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "too-many-pages.pdf"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert "20 pages" in body["error"]
+        mock_validate.assert_called_once()
+        mock_extract.assert_not_called()
 
     def test_extract_png_success(self, flask_client):
         client, tmp_path = flask_client
@@ -556,8 +689,10 @@ class TestWebApp:
     def test_extract_full_mode_calls_classify_and_summarize(self, flask_client, monkeypatch):
         client, tmp_path = flask_client
 
-        mock_classify = MagicMock(return_value='{"document_type":"invoice","confidence":90}')
-        mock_summarize = MagicMock(return_value='{"short_summary":"A bill.","bullet_points":["Pay it."]}')
+        mock_classify = MagicMock(return_value={"document_type": "invoice", "confidence": 90})
+        mock_summarize = MagicMock(
+            return_value={"short_summary": "A bill.", "bullet_points": ["Pay it."]}
+        )
         monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="invoice text here"))
         monkeypatch.setattr("agent.doc_classify.classify_document", mock_classify)
         monkeypatch.setattr("agent.doc_summarize.summarize_document", mock_summarize)
@@ -570,10 +705,134 @@ class TestWebApp:
 
         assert resp.status_code == 200
         body = resp.get_json()
-        # JSON strings from the model should be parsed into objects
         assert body["classification"] == {"document_type": "invoice", "confidence": 90}
         assert body["summary"]["short_summary"] == "A bill."
         assert body["summary"]["bullet_points"] == ["Pay it."]
+        mock_classify.assert_called_once_with("invoice text here")
+        mock_summarize.assert_called_once_with("invoice text here")
+
+    def test_extract_full_mode_rate_limit_blocks_fourth_request(
+        self, flask_client, monkeypatch
+    ):
+        client, _ = flask_client
+        import web_app
+
+        monkeypatch.setattr(web_app.limiter, "enabled", True)
+        web_app.limiter.reset()
+        mock_extract = MagicMock(return_value="invoice text here")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+        monkeypatch.setattr(
+            "agent.doc_classify.classify_document",
+            MagicMock(return_value={"document_type": "invoice", "confidence": 90}),
+        )
+        monkeypatch.setattr(
+            "agent.doc_summarize.summarize_document",
+            MagicMock(return_value={"short_summary": "A bill.", "bullet_points": []}),
+        )
+
+        responses = []
+        for _ in range(4):
+            data = {
+                "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
+                "mode": "full",
+            }
+            responses.append(
+                client.post(
+                    "/api/extract",
+                    data=data,
+                    content_type="multipart/form-data",
+                    environ_overrides={"REMOTE_ADDR": "203.0.113.10"},
+                )
+            )
+
+        assert [resp.status_code for resp in responses] == [200, 200, 200, 429]
+        assert "Too many requests" in responses[-1].get_json()["error"]
+        assert mock_extract.call_count == 3
+
+    def test_extract_text_only_is_not_limited_by_full_mode_limit(
+        self, flask_client, monkeypatch
+    ):
+        client, _ = flask_client
+        import web_app
+
+        monkeypatch.setattr(web_app.limiter, "enabled", True)
+        web_app.limiter.reset()
+        mock_extract = MagicMock(return_value="plain extracted text")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        responses = []
+        for _ in range(4):
+            data = {
+                "file": (io.BytesIO(b"dummy"), "document.pdf"),
+                "mode": "extract",
+            }
+            responses.append(
+                client.post(
+                    "/api/extract",
+                    data=data,
+                    content_type="multipart/form-data",
+                    environ_overrides={"REMOTE_ADDR": "203.0.113.11"},
+                )
+            )
+
+        assert [resp.status_code for resp in responses] == [200, 200, 200, 200]
+        assert mock_extract.call_count == 4
+
+    def test_extract_full_mode_keeps_summary_when_classification_fails(
+        self, flask_client, monkeypatch
+    ):
+        client, _ = flask_client
+
+        mock_classify = MagicMock(side_effect=ValueError("bad classification json"))
+        mock_summarize = MagicMock(
+            return_value={"short_summary": "A bill.", "bullet_points": ["Pay it."]}
+        )
+        monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="invoice text here"))
+        monkeypatch.setattr("agent.doc_classify.classify_document", mock_classify)
+        monkeypatch.setattr("agent.doc_summarize.summarize_document", mock_summarize)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
+            "mode": "full",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["text"] == "invoice text here"
+        assert "classification" not in body
+        assert body["summary"]["short_summary"] == "A bill."
+        assert body["analysisErrors"] == {
+            "classification": "Classification could not be completed."
+        }
+        assert "bad classification json" not in json.dumps(body)
+        mock_classify.assert_called_once_with("invoice text here")
+        mock_summarize.assert_called_once_with("invoice text here")
+
+    def test_extract_full_mode_keeps_classification_when_summary_fails(
+        self, flask_client, monkeypatch
+    ):
+        client, _ = flask_client
+
+        mock_classify = MagicMock(return_value={"document_type": "invoice", "confidence": 90})
+        mock_summarize = MagicMock(side_effect=ValueError("bad summary json"))
+        monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="invoice text here"))
+        monkeypatch.setattr("agent.doc_classify.classify_document", mock_classify)
+        monkeypatch.setattr("agent.doc_summarize.summarize_document", mock_summarize)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
+            "mode": "full",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["text"] == "invoice text here"
+        assert body["classification"] == {"document_type": "invoice", "confidence": 90}
+        assert "summary" not in body
+        assert body["analysisErrors"] == {"summary": "Summary could not be completed."}
+        assert "bad summary json" not in json.dumps(body)
         mock_classify.assert_called_once_with("invoice text here")
         mock_summarize.assert_called_once_with("invoice text here")
 
@@ -647,6 +906,74 @@ class TestWebApp:
         }
         resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_explain_rejects_pdf_over_page_limit_before_ocr(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        mock_validate = MagicMock(
+            side_effect=web_app.PdfPageLimitError(
+                "PDFs are limited to 20 pages. This PDF has 21 pages."
+            )
+        )
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.validate_pdf_page_count", mock_validate)
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "too-many-pages.pdf"),
+            "language": "english",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert "20 pages" in body["error"]
+        mock_validate.assert_called_once()
+        mock_extract.assert_not_called()
+
+    def test_explain_rate_limit_blocks_fourth_request(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        monkeypatch.setattr(web_app.limiter, "enabled", True)
+        web_app.limiter.reset()
+        mock_extract = MagicMock(return_value="document text")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+        monkeypatch.setattr(
+            "agent.doc_explain.explain_document",
+            MagicMock(
+                return_value={
+                    "document_type": "Letter",
+                    "summary": "A letter.",
+                    "explanation": "The sender shares information.",
+                    "important_points": [],
+                    "actions_required": [],
+                    "important_dates": [],
+                    "amounts": [],
+                    "warnings": [],
+                }
+            ),
+        )
+
+        responses = []
+        for _ in range(4):
+            data = {
+                "file": (io.BytesIO(b"dummy"), "letter.pdf"),
+                "language": "english",
+            }
+            responses.append(
+                client.post(
+                    "/api/explain",
+                    data=data,
+                    content_type="multipart/form-data",
+                    environ_overrides={"REMOTE_ADDR": "203.0.113.12"},
+                )
+            )
+
+        assert [resp.status_code for resp in responses] == [200, 200, 200, 429]
+        assert "Too many requests" in responses[-1].get_json()["error"]
+        assert mock_extract.call_count == 3
 
     def test_explain_empty_text_returns_422(self, flask_client, monkeypatch):
         client, _ = flask_client
@@ -840,13 +1167,61 @@ class TestAgent:
         from agent.agent import process_single_file
 
         monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="some text"))
-        monkeypatch.setattr("agent.agent.classify_document", MagicMock(return_value='{"document_type":"other"}'))
-        monkeypatch.setattr("agent.agent.summarize_document", MagicMock(return_value='{"short_summary":"x"}'))
+        monkeypatch.setattr(
+            "agent.agent.classify_document",
+            MagicMock(return_value={"document_type": "other", "confidence": 70}),
+        )
+        monkeypatch.setattr(
+            "agent.agent.summarize_document",
+            MagicMock(return_value={"short_summary": "x", "bullet_points": []}),
+        )
 
         result = process_single_file("fake.pdf", "full")
 
-        assert "classification" in result
-        assert "summary" in result
+        assert result["classification"] == {"document_type": "other", "confidence": 70}
+        assert result["summary"] == {"short_summary": "x", "bullet_points": []}
+
+    def test_process_single_file_keeps_summary_when_classification_fails(self, monkeypatch):
+        from agent.agent import process_single_file
+
+        monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="some text"))
+        monkeypatch.setattr(
+            "agent.agent.classify_document",
+            MagicMock(side_effect=ValueError("bad classification json")),
+        )
+        monkeypatch.setattr(
+            "agent.agent.summarize_document",
+            MagicMock(return_value={"short_summary": "x", "bullet_points": []}),
+        )
+
+        result = process_single_file("fake.pdf", "full")
+
+        assert result["extracted_text"] == "some text"
+        assert "classification" not in result
+        assert result["summary"] == {"short_summary": "x", "bullet_points": []}
+        assert result["analysisErrors"] == {
+            "classification": "Classification could not be completed."
+        }
+
+    def test_process_single_file_keeps_classification_when_summary_fails(self, monkeypatch):
+        from agent.agent import process_single_file
+
+        monkeypatch.setattr("agent.agent.extract_text", MagicMock(return_value="some text"))
+        monkeypatch.setattr(
+            "agent.agent.classify_document",
+            MagicMock(return_value={"document_type": "other", "confidence": 70}),
+        )
+        monkeypatch.setattr(
+            "agent.agent.summarize_document",
+            MagicMock(side_effect=ValueError("bad summary json")),
+        )
+
+        result = process_single_file("fake.pdf", "full")
+
+        assert result["extracted_text"] == "some text"
+        assert result["classification"] == {"document_type": "other", "confidence": 70}
+        assert "summary" not in result
+        assert result["analysisErrors"] == {"summary": "Summary could not be completed."}
 
     def test_main_file_not_found(self, monkeypatch, capsys):
         import agent.agent as ag

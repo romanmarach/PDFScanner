@@ -1,42 +1,46 @@
-from openai import OpenAI
-from dotenv import load_dotenv
 import os
+from typing import Literal
+
+from dotenv import load_dotenv
+from openai import OpenAI
+from pydantic import BaseModel, Field
 
 load_dotenv()
+
+
+DEFAULT_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-4o-mini")
+
+
+class DocumentClassification(BaseModel):
+    document_type: Literal[
+        "invoice",
+        "resume",
+        "contract",
+        "letter",
+        "bank_statement",
+        "other",
+    ]
+    confidence: int = Field(ge=0, le=100)
 
 
 def _client() -> OpenAI:
     return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def classify_document(text: str):
-    prompt = f"""
-    You are a document classification AI.
-
-    Classify the following text into one of the categories:
-    - invoice
-    - resume
-    - contract
-    - letter
-    - bank_statement
-    - other
-
-    Return ONLY valid JSON with:
-    {{
-        "document_type": "...",
-        "confidence": 0-100
-    }}
-
-    Text:
-    {text[:3000]}
-    """
-    #truncated your text to no longer than 3000 characters
-
-    response = _client().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
+def classify_document(text: str) -> dict:
+    response = _client().responses.parse(
+        model=DEFAULT_MODEL,
+        instructions=(
+            "Classify the document into exactly one of these categories: "
+            "invoice, resume, contract, letter, bank_statement, or other. "
+            "Use only the supplied document text. Return a confidence score "
+            "from 0 to 100."
+        ),
+        input=text[:3000],
+        text_format=DocumentClassification,
     )
 
-    return response.choices[0].message.content
+    if response.output_parsed is None:
+        raise ValueError("The classification model did not return a usable result.")
+
+    return response.output_parsed.model_dump()

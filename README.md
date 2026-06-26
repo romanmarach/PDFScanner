@@ -78,6 +78,18 @@ at `/extract`. The explainer uses `gpt-5.4-mini` by default. Override it with:
 OPENAI_EXPLAIN_MODEL=your_model_name
 ```
 
+Production safety limits can be adjusted with environment variables:
+
+```env
+MAX_PDF_PAGES=10
+OPENAI_RATE_LIMIT_SHORT=3 per 10 minutes
+OPENAI_RATE_LIMIT_DAILY=20 per day
+RATE_LIMIT_STORAGE_URI=memory://
+```
+
+Use a Redis storage URI such as `redis://localhost:6379/0` for rate limiting
+when running multiple workers or containers.
+
 ## Command Line
 
 Extract text from one document:

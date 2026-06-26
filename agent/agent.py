@@ -23,20 +23,32 @@ def process_single_file(file_path, mode):
     #     print("✅ Extracted text saved to ./output/extracted_text.txt")
 #======================================================================
     if mode == "full":
+        analysis_errors = {}
+
         print("\n Classifying document...")
-        classification = classify_document(text)
+        try:
+            classification = classify_document(text)
+            result["classification"] = classification
+        except Exception as exc:
+            print(f"Classification failed: {type(exc).__name__}: {exc}")
+            analysis_errors["classification"] = "Classification could not be completed."
 
         print("\n summarizing document...")
-        summary = summarize_document(text)
+        try:
+            summary = summarize_document(text)
+            result["summary"] = summary
+        except Exception as exc:
+            print(f"Summary failed: {type(exc).__name__}: {exc}")
+            analysis_errors["summary"] = "Summary could not be completed."
         
-        result["classification"] = classification
-        result["summary"] = summary
+        if analysis_errors:
+            result["analysisErrors"] = analysis_errors
 
 
         print("document type and confidence")
-        print(classification)
+        print(result.get("classification", "Classification unavailable."))
         print("Document summary:")
-        print(summary)
+        print(result.get("summary", "Summary unavailable."))
 
     return result
 

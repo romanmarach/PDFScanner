@@ -129,6 +129,29 @@ function renderResult(result) {
   renderAnalysis(result);
 }
 
+function resultMessage(result) {
+  const errors = result.analysisErrors || {};
+  const failed = [];
+
+  if (errors.classification) {
+    failed.push("classification");
+  }
+
+  if (errors.summary) {
+    failed.push("summary");
+  }
+
+  if (failed.length === 2) {
+    return "Extraction complete, but classification and summary could not be completed.";
+  }
+
+  if (failed.length === 1) {
+    return `Extraction complete, but ${failed[0]} could not be completed.`;
+  }
+
+  return "Extraction complete.";
+}
+
 function downloadJson(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json",
@@ -200,7 +223,7 @@ uploadForm.addEventListener("submit", async (event) => {
     }
 
     renderResult(result);
-    setMessage("Extraction complete.");
+    setMessage(resultMessage(result));
     setStatus("Complete");
   } catch (error) {
     setMessage(error.message, true);

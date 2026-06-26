@@ -4,6 +4,8 @@ import uuid
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.utils import secure_filename
 
 from agent.text_extraction import EXTRACTABLE_EXTENSIONS, extract_text
@@ -25,14 +27,56 @@ ALLOWED_LANGUAGES = {
 MAX_EXPLAIN_CHARS = 60_000
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
+MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "10"))
+OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour")
+OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
+RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://")
 
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri=RATE_LIMIT_STORAGE_URI,
+)
+
+
+class PdfValidationError(ValueError):
+    """Raised when an uploaded PDF should be rejected before OCR."""
+
+
+class PdfPageLimitError(PdfValidationError):
+    """Raised when an uploaded PDF exceeds the configured page limit."""
 
 
 def allowed_file(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
+
+
+def validate_pdf_page_count(path: Path) -> None:
+    if path.suffix.lower() != ".pdf":
+        return
+
+    import fitz
+
+    read_errors = tuple(
+        error_type
+        for error_type in (getattr(fitz, "FileDataError", None), RuntimeError)
+        if error_type is not None
+    )
+
+    try:
+        with fitz.open(path) as pdf:
+            page_count = pdf.page_count
+    except read_errors as exc:
+        raise PdfValidationError("This PDF is corrupt or unreadable.") from exc
+
+    if page_count > MAX_PDF_PAGES:
+        raise PdfPageLimitError(
+            f"PDFs are limited to {MAX_PDF_PAGES} pages. This PDF has {page_count} pages."
+        )
 
 
 def upload_names(filename: str) -> tuple[str, str]:
@@ -51,6 +95,11 @@ def upload_names(filename: str) -> tuple[str, str]:
 @app.errorhandler(413)
 def upload_too_large(error):
     return jsonify({"error": f"File is larger than the {MAX_UPLOAD_MB} MB upload limit."}), 413
+
+
+@app.errorhandler(429)
+def rate_limit_exceeded(error):
+    return jsonify({"error": "Too many requests. Please wait before trying again."}), 429
 
 
 def parse_jsonish(value):
@@ -78,6 +127,14 @@ def extractor():
 
 
 @app.post("/api/extract")
+@limiter.limit(
+    OPENAI_RATE_LIMIT_SHORT,
+    exempt_when=lambda: request.form.get("mode", "extract") != "full",
+)
+@limiter.limit(
+    OPENAI_RATE_LIMIT_DAILY,
+    exempt_when=lambda: request.form.get("mode", "extract") != "full",
+)
 def extract_document():
     uploaded_file = request.files.get("file")
     mode = request.form.get("mode", "extract")
@@ -98,6 +155,7 @@ def extract_document():
     uploaded_file.save(stored_path)
 
     try:
+        validate_pdf_page_count(stored_path)
         text = extract_text(str(stored_path))
 
         result = {
@@ -112,10 +170,24 @@ def extract_document():
             from agent.doc_classify import classify_document
             from agent.doc_summarize import summarize_document
 
-            result["classification"] = parse_jsonish(classify_document(text))
-            result["summary"] = parse_jsonish(summarize_document(text))
+            analysis_errors = {}
+
+            try:
+                result["classification"] = parse_jsonish(classify_document(text))
+            except Exception:
+                analysis_errors["classification"] = "Classification could not be completed."
+
+            try:
+                result["summary"] = parse_jsonish(summarize_document(text))
+            except Exception:
+                analysis_errors["summary"] = "Summary could not be completed."
+
+            if analysis_errors:
+                result["analysisErrors"] = analysis_errors
 
         return jsonify(result)
+    except PdfValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
     finally:
@@ -126,6 +198,8 @@ def extract_document():
 
 
 @app.post("/api/explain")
+@limiter.limit(OPENAI_RATE_LIMIT_SHORT)
+@limiter.limit(OPENAI_RATE_LIMIT_DAILY)
 def explain_uploaded_document():
     uploaded_file = request.files.get("file")
     language_key = request.form.get("language", "english").lower()
@@ -148,6 +222,7 @@ def explain_uploaded_document():
     try:
         from agent.doc_explain import explain_document, translate_explanation
 
+        validate_pdf_page_count(stored_path)
         extracted_text = extract_text(str(stored_path))
         if not extracted_text.strip():
             return jsonify({"error": "No readable text was found in this document."}), 422
@@ -171,6 +246,8 @@ def explain_uploaded_document():
         }
 
         return jsonify(result)
+    except PdfValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
     finally:
