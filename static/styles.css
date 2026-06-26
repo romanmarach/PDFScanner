@@ -361,6 +361,13 @@ select {
   line-height: 1.5;
 }
 
+.turnstile-field {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
+  min-height: 65px;
+}
+
 .form-message.error {
   color: var(--red);
 }
@@ -740,6 +747,11 @@ textarea:focus {
   .actions button,
   .actions a {
     flex: 1;
+  }
+
+  .turnstile-field {
+    justify-content: flex-start;
+    overflow-x: auto;
   }
 
   .upload-zone {

@@ -6,8 +6,14 @@
     <title>PDFScanner - Document Explainer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    {% if turnstile_enabled %}
+    <link rel="preconnect" href="https://challenges.cloudflare.com">
+    {% endif %}
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    {% if turnstile_enabled %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    {% endif %}
   </head>
   <body>
     <header class="site-header">
@@ -38,7 +44,7 @@
         <p>Turn difficult English documents into a clear explanation, then read it in the language you prefer.</p>
       </section>
 
-      <form class="upload-card" id="explainForm" data-max-upload="{{ max_upload_bytes }}">
+      <form class="upload-card" id="explainForm" data-max-upload="{{ max_upload_bytes }}" data-turnstile-enabled="{{ 'true' if turnstile_enabled else 'false' }}">
         <label class="upload-zone" id="dropZone">
           <input id="fileInput" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx">
           <span class="upload-icon" aria-hidden="true">
@@ -69,6 +75,12 @@
             <span>Explain document</span>
           </button>
         </div>
+
+        {% if turnstile_enabled %}
+        <div class="turnstile-field">
+          <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="light"></div>
+        </div>
+        {% endif %}
 
         <p class="form-message" id="formMessage"></p>
       </form>

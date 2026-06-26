@@ -1,5 +1,8 @@
 import json
 import os
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from pathlib import Path
 from threading import BoundedSemaphore
@@ -7,10 +10,13 @@ from threading import BoundedSemaphore
 from flask import Flask, jsonify, render_template, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
 from agent.text_extraction import EXTRACTABLE_EXTENSIONS, extract_text
 
+
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -33,6 +39,15 @@ OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour"
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
+TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "")
+TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+TURNSTILE_TIMEOUT_SECONDS = float(os.environ.get("TURNSTILE_TIMEOUT_SECONDS", "5"))
+TURNSTILE_ENABLED_ENV = os.environ.get("TURNSTILE_ENABLED")
+if TURNSTILE_ENABLED_ENV is None:
+    TURNSTILE_ENABLED = bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY)
+else:
+    TURNSTILE_ENABLED = TURNSTILE_ENABLED_ENV.lower() in {"1", "true", "yes", "on"}
 
 
 app = Flask(__name__)
@@ -52,6 +67,14 @@ class PdfValidationError(ValueError):
 
 class PdfPageLimitError(PdfValidationError):
     """Raised when an uploaded PDF exceeds the configured page limit."""
+
+
+class TurnstileValidationError(ValueError):
+    """Raised when bot verification fails for a request."""
+
+
+class TurnstileConfigError(RuntimeError):
+    """Raised when bot protection is enabled but not configured."""
 
 
 def allowed_file(filename: str) -> bool:
@@ -88,6 +111,67 @@ def acquire_processing_slot() -> bool:
 
 def release_processing_slot() -> None:
     processing_slots.release()
+
+
+def request_remote_ip() -> str | None:
+    cloudflare_ip = request.headers.get("CF-Connecting-IP")
+    if cloudflare_ip:
+        return cloudflare_ip
+
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+
+    return request.remote_addr
+
+
+def verify_turnstile_response(token: str | None, remote_ip: str | None) -> dict:
+    if not TURNSTILE_ENABLED:
+        return {"success": True, "skipped": True}
+
+    if not TURNSTILE_SECRET_KEY:
+        raise TurnstileConfigError("Bot protection is not configured.")
+
+    if not token:
+        raise TurnstileValidationError("Bot verification failed. Please refresh and try again.")
+
+    payload = {
+        "secret": TURNSTILE_SECRET_KEY,
+        "response": token,
+    }
+    if remote_ip:
+        payload["remoteip"] = remote_ip
+
+    encoded_payload = urllib.parse.urlencode(payload).encode("utf-8")
+    verify_request = urllib.request.Request(
+        TURNSTILE_VERIFY_URL,
+        data=encoded_payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(
+            verify_request,
+            timeout=TURNSTILE_TIMEOUT_SECONDS,
+        ) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise TurnstileValidationError(
+            "Bot verification could not be completed. Please try again."
+        ) from exc
+
+    if not result.get("success"):
+        raise TurnstileValidationError("Bot verification failed. Please refresh and try again.")
+
+    return result
+
+
+def verify_request_turnstile() -> None:
+    verify_turnstile_response(
+        request.form.get("cf-turnstile-response"),
+        request_remote_ip(),
+    )
 
 
 def upload_names(filename: str) -> tuple[str, str]:
@@ -130,14 +214,22 @@ def parse_jsonish(value):
 @app.get("/")
 def index():
     return render_template(
-        "index.html", max_upload_bytes=MAX_UPLOAD_BYTES, max_upload_mb=MAX_UPLOAD_MB
+        "index.html",
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+        max_upload_mb=MAX_UPLOAD_MB,
+        turnstile_enabled=TURNSTILE_ENABLED,
+        turnstile_site_key=TURNSTILE_SITE_KEY,
     )
 
 
 @app.get("/extract")
 def extractor():
     return render_template(
-        "extract.html", max_upload_bytes=MAX_UPLOAD_BYTES, max_upload_mb=MAX_UPLOAD_MB
+        "extract.html",
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+        max_upload_mb=MAX_UPLOAD_MB,
+        turnstile_enabled=TURNSTILE_ENABLED,
+        turnstile_site_key=TURNSTILE_SITE_KEY,
     )
 
 
@@ -162,6 +254,13 @@ def extract_document():
 
     if mode not in {"extract", "full"}:
         return jsonify({"error": "Invalid processing mode."}), 400
+
+    try:
+        verify_request_turnstile()
+    except TurnstileValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except TurnstileConfigError as exc:
+        return jsonify({"error": str(exc)}), 500
 
     UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -233,6 +332,13 @@ def explain_uploaded_document():
 
     if language_key not in ALLOWED_LANGUAGES:
         return jsonify({"error": "Choose a supported explanation language."}), 400
+
+    try:
+        verify_request_turnstile()
+    except TurnstileValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except TurnstileConfigError as exc:
+        return jsonify({"error": str(exc)}), 500
 
     UPLOAD_DIR.mkdir(exist_ok=True)
 

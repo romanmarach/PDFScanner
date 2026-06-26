@@ -16,6 +16,7 @@ import os
 import tempfile
 import textwrap
 import types
+import urllib.parse
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -505,6 +506,7 @@ def flask_client(monkeypatch, tmp_path):
     monkeypatch.setattr("web_app.extract_text", MagicMock(return_value="extracted text content"))
     monkeypatch.setattr("web_app.validate_pdf_page_count", MagicMock())
     monkeypatch.setattr(web_app.limiter, "enabled", False)
+    monkeypatch.setattr("web_app.TURNSTILE_ENABLED", False)
     web_app.limiter.reset()
 
     web_app.app.config["TESTING"] = True
@@ -580,6 +582,81 @@ class TestWebPdfPageValidation:
             web_app.validate_pdf_page_count(pdf_path)
 
 
+class TestTurnstileVerification:
+    def test_verify_turnstile_response_skips_when_disabled(self, monkeypatch):
+        import web_app
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", False)
+
+        result = web_app.verify_turnstile_response(None, "203.0.113.5")
+
+        assert result == {"success": True, "skipped": True}
+
+    def test_verify_turnstile_response_calls_siteverify(self, monkeypatch):
+        import web_app
+
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return b'{"success": true, "hostname": "example.com"}'
+
+        def fake_urlopen(request, timeout):
+            captured["data"] = urllib.parse.parse_qs(request.data.decode("utf-8"))
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        monkeypatch.setattr("web_app.TURNSTILE_SECRET_KEY", "secret-key")
+        monkeypatch.setattr("web_app.TURNSTILE_TIMEOUT_SECONDS", 7)
+        monkeypatch.setattr("web_app.urllib.request.urlopen", fake_urlopen)
+
+        result = web_app.verify_turnstile_response("client-token", "203.0.113.5")
+
+        assert result["success"] is True
+        assert captured["data"] == {
+            "secret": ["secret-key"],
+            "response": ["client-token"],
+            "remoteip": ["203.0.113.5"],
+        }
+        assert captured["timeout"] == 7
+
+    def test_verify_turnstile_response_rejects_failure(self, monkeypatch):
+        import web_app
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return b'{"success": false, "error-codes": ["invalid-input-response"]}'
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        monkeypatch.setattr("web_app.TURNSTILE_SECRET_KEY", "secret-key")
+        monkeypatch.setattr("web_app.urllib.request.urlopen", MagicMock(return_value=FakeResponse()))
+
+        with pytest.raises(web_app.TurnstileValidationError, match="Bot verification failed"):
+            web_app.verify_turnstile_response("bad-token", "203.0.113.5")
+
+    def test_verify_turnstile_response_requires_secret_when_enabled(self, monkeypatch):
+        import web_app
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        monkeypatch.setattr("web_app.TURNSTILE_SECRET_KEY", "")
+
+        with pytest.raises(web_app.TurnstileConfigError, match="not configured"):
+            web_app.verify_turnstile_response("client-token", "203.0.113.5")
+
+
 class TestWebApp:
     def test_index_returns_explainer(self, flask_client):
         client, _ = flask_client
@@ -593,6 +670,22 @@ class TestWebApp:
         resp = client.get("/extract")
         assert resp.status_code == 200
         assert b"Document" in resp.data
+
+    def test_pages_render_turnstile_when_enabled(self, flask_client, monkeypatch):
+        client, _ = flask_client
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        monkeypatch.setattr("web_app.TURNSTILE_SITE_KEY", "site-key")
+
+        index_resp = client.get("/")
+        extract_resp = client.get("/extract")
+
+        assert b"https://challenges.cloudflare.com/turnstile/v0/api.js" in index_resp.data
+        assert b"cf-turnstile" in index_resp.data
+        assert b"site-key" in index_resp.data
+        assert b"https://challenges.cloudflare.com/turnstile/v0/api.js" in extract_resp.data
+        assert b"cf-turnstile" in extract_resp.data
+        assert b"site-key" in extract_resp.data
 
     def test_extract_no_file_returns_400(self, flask_client):
         client, _ = flask_client
@@ -619,6 +712,47 @@ class TestWebApp:
         }
         resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_extract_requires_turnstile_before_saving_upload(self, flask_client, monkeypatch):
+        client, tmp_path = flask_client
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        monkeypatch.setattr("web_app.TURNSTILE_SECRET_KEY", "secret-key")
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "blocked.pdf"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 400
+        assert "Bot verification failed" in resp.get_json()["error"]
+        mock_extract.assert_not_called()
+        assert not (tmp_path / "uploads").exists()
+
+    def test_extract_accepts_valid_turnstile_token(self, flask_client, monkeypatch):
+        client, _ = flask_client
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        mock_verify = MagicMock(return_value={"success": True})
+        monkeypatch.setattr("web_app.verify_turnstile_response", mock_verify)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "verified.pdf"),
+            "mode": "extract",
+            "cf-turnstile-response": "client-token",
+        }
+        resp = client.post(
+            "/api/extract",
+            data=data,
+            content_type="multipart/form-data",
+            environ_overrides={"REMOTE_ADDR": "203.0.113.77"},
+        )
+
+        assert resp.status_code == 200
+        mock_verify.assert_called_once_with("client-token", "203.0.113.77")
 
     def test_extract_rejects_pdf_over_page_limit_before_ocr(self, flask_client, monkeypatch):
         client, _ = flask_client
@@ -931,6 +1065,25 @@ class TestWebApp:
         }
         resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_explain_requires_turnstile_before_saving_upload(self, flask_client, monkeypatch):
+        client, tmp_path = flask_client
+
+        monkeypatch.setattr("web_app.TURNSTILE_ENABLED", True)
+        monkeypatch.setattr("web_app.TURNSTILE_SECRET_KEY", "secret-key")
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "blocked.pdf"),
+            "language": "english",
+        }
+        resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 400
+        assert "Bot verification failed" in resp.get_json()["error"]
+        mock_extract.assert_not_called()
+        assert not (tmp_path / "uploads").exists()
 
     def test_explain_rejects_pdf_over_page_limit_before_ocr(self, flask_client, monkeypatch):
         client, _ = flask_client

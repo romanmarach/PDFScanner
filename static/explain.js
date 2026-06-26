@@ -19,6 +19,7 @@ const pdfButton = document.querySelector("#pdfButton");
 const copyButton = document.querySelector("#copyButton");
 const downloadLink = document.querySelector("#downloadLink");
 
+const TURNSTILE_ENABLED = explainForm.dataset.turnstileEnabled === "true";
 const listFields = {
   important_points: document.querySelector("#importantPoints"),
   actions_required: document.querySelector("#actionsRequired"),
@@ -76,6 +77,12 @@ function updateFileLabel() {
 function fileTooLarge() {
   const file = fileInput.files[0];
   return Boolean(file) && file.size > MAX_UPLOAD_BYTES;
+}
+
+function resetTurnstile() {
+  if (TURNSTILE_ENABLED && window.turnstile) {
+    window.turnstile.reset();
+  }
 }
 
 function setLoading(isLoading) {
@@ -325,12 +332,18 @@ explainForm.addEventListener("submit", async (event) => {
   }
 
   try {
+    const formData = new FormData(explainForm);
+    if (TURNSTILE_ENABLED && !formData.get("cf-turnstile-response")) {
+      setMessage("Complete the bot verification before explaining the document.", true);
+      return;
+    }
+
     setLoading(true);
     setMessage("Reading and explaining the document. Scanned files may take longer.");
 
     const response = await fetch("/api/explain", {
       method: "POST",
-      body: new FormData(explainForm),
+      body: formData,
     });
     const result = await response.json();
 
@@ -346,6 +359,7 @@ explainForm.addEventListener("submit", async (event) => {
     setStatus("Error", "error");
   } finally {
     setLoading(false);
+    resetTurnstile();
   }
 });
 

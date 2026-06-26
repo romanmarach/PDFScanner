@@ -22,6 +22,7 @@ const bulletSummary = document.querySelector("#bulletSummary");
 
 const MAX_UPLOAD_BYTES = Number(uploadForm.dataset.maxUpload) || 25 * 1024 * 1024;
 const MAX_UPLOAD_MB = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+const TURNSTILE_ENABLED = uploadForm.dataset.turnstileEnabled === "true";
 
 let latestResult = null;
 let latestText = "";
@@ -69,6 +70,12 @@ function updateFileLabel() {
 function fileTooLarge() {
   const file = fileInput.files[0];
   return Boolean(file) && file.size > MAX_UPLOAD_BYTES;
+}
+
+function resetTurnstile() {
+  if (TURNSTILE_ENABLED && window.turnstile) {
+    window.turnstile.reset();
+  }
 }
 
 function setLoading(isLoading) {
@@ -206,6 +213,10 @@ uploadForm.addEventListener("submit", async (event) => {
   }
 
   const formData = new FormData(uploadForm);
+  if (TURNSTILE_ENABLED && !formData.get("cf-turnstile-response")) {
+    setMessage("Complete the bot verification before running OCR.", true);
+    return;
+  }
 
   try {
     setLoading(true);
@@ -230,6 +241,7 @@ uploadForm.addEventListener("submit", async (event) => {
     setStatus("Error", "error");
   } finally {
     setLoading(false);
+    resetTurnstile();
   }
 });
 
