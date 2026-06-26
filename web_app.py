@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from pathlib import Path
+from threading import BoundedSemaphore
 
 from flask import Flask, jsonify, render_template, request
 from flask_limiter import Limiter
@@ -31,6 +32,7 @@ MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "10"))
 OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour")
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://")
+MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
 
 
 app = Flask(__name__)
@@ -41,6 +43,7 @@ limiter = Limiter(
     default_limits=[],
     storage_uri=RATE_LIMIT_STORAGE_URI,
 )
+processing_slots = BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
 
 class PdfValidationError(ValueError):
@@ -79,6 +82,14 @@ def validate_pdf_page_count(path: Path) -> None:
         )
 
 
+def acquire_processing_slot() -> bool:
+    return processing_slots.acquire(blocking=False)
+
+
+def release_processing_slot() -> None:
+    processing_slots.release()
+
+
 def upload_names(filename: str) -> tuple[str, str]:
     """Return a display name and a unique on-disk name for an upload.
 
@@ -100,6 +111,10 @@ def upload_too_large(error):
 @app.errorhandler(429)
 def rate_limit_exceeded(error):
     return jsonify({"error": "Too many requests. Please wait before trying again."}), 429
+
+
+def server_busy_response():
+    return jsonify({"error": "Server is busy. Please try again shortly."}), 503
 
 
 def parse_jsonish(value):
@@ -156,36 +171,42 @@ def extract_document():
 
     try:
         validate_pdf_page_count(stored_path)
-        text = extract_text(str(stored_path))
+        if not acquire_processing_slot():
+            return server_busy_response()
 
-        result = {
-            "fileName": original_name,
-            "mode": mode,
-            "text": text,
-            "characterCount": len(text),
-            "wordCount": len(text.split()),
-        }
+        try:
+            text = extract_text(str(stored_path))
 
-        if mode == "full":
-            from agent.doc_classify import classify_document
-            from agent.doc_summarize import summarize_document
+            result = {
+                "fileName": original_name,
+                "mode": mode,
+                "text": text,
+                "characterCount": len(text),
+                "wordCount": len(text.split()),
+            }
 
-            analysis_errors = {}
+            if mode == "full":
+                from agent.doc_classify import classify_document
+                from agent.doc_summarize import summarize_document
 
-            try:
-                result["classification"] = parse_jsonish(classify_document(text))
-            except Exception:
-                analysis_errors["classification"] = "Classification could not be completed."
+                analysis_errors = {}
 
-            try:
-                result["summary"] = parse_jsonish(summarize_document(text))
-            except Exception:
-                analysis_errors["summary"] = "Summary could not be completed."
+                try:
+                    result["classification"] = parse_jsonish(classify_document(text))
+                except Exception:
+                    analysis_errors["classification"] = "Classification could not be completed."
 
-            if analysis_errors:
-                result["analysisErrors"] = analysis_errors
+                try:
+                    result["summary"] = parse_jsonish(summarize_document(text))
+                except Exception:
+                    analysis_errors["summary"] = "Summary could not be completed."
 
-        return jsonify(result)
+                if analysis_errors:
+                    result["analysisErrors"] = analysis_errors
+
+            return jsonify(result)
+        finally:
+            release_processing_slot()
     except PdfValidationError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
@@ -223,29 +244,35 @@ def explain_uploaded_document():
         from agent.doc_explain import explain_document, translate_explanation
 
         validate_pdf_page_count(stored_path)
-        extracted_text = extract_text(str(stored_path))
-        if not extracted_text.strip():
-            return jsonify({"error": "No readable text was found in this document."}), 422
+        if not acquire_processing_slot():
+            return server_busy_response()
 
-        was_truncated = len(extracted_text) > MAX_EXPLAIN_CHARS
-        explanation = explain_document(extracted_text[:MAX_EXPLAIN_CHARS])
-        language_name = ALLOWED_LANGUAGES[language_key]
-        translated = None
+        try:
+            extracted_text = extract_text(str(stored_path))
+            if not extracted_text.strip():
+                return jsonify({"error": "No readable text was found in this document."}), 422
 
-        if language_key != "english":
-            translated = translate_explanation(explanation, language_name)
+            was_truncated = len(extracted_text) > MAX_EXPLAIN_CHARS
+            explanation = explain_document(extracted_text[:MAX_EXPLAIN_CHARS])
+            language_name = ALLOWED_LANGUAGES[language_key]
+            translated = None
 
-        result = {
-            "fileName": original_name,
-            "language": language_key,
-            "languageName": language_name,
-            "english": explanation,
-            "translated": translated,
-            "sourceCharacterCount": len(extracted_text),
-            "sourceWasTruncated": was_truncated,
-        }
+            if language_key != "english":
+                translated = translate_explanation(explanation, language_name)
 
-        return jsonify(result)
+            result = {
+                "fileName": original_name,
+                "language": language_key,
+                "languageName": language_name,
+                "english": explanation,
+                "translated": translated,
+                "sourceCharacterCount": len(extracted_text),
+                "sourceWasTruncated": was_truncated,
+            }
+
+            return jsonify(result)
+        finally:
+            release_processing_slot()
     except PdfValidationError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:

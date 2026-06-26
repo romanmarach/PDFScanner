@@ -82,13 +82,15 @@ Production safety limits can be adjusted with environment variables:
 
 ```env
 MAX_PDF_PAGES=10
-OPENAI_RATE_LIMIT_SHORT=3 per 10 minutes
-OPENAI_RATE_LIMIT_DAILY=20 per day
+OPENAI_RATE_LIMIT_SHORT=3 per hour
+OPENAI_RATE_LIMIT_DAILY=10 per day
 RATE_LIMIT_STORAGE_URI=memory://
+MAX_CONCURRENT_JOBS=1
 ```
 
 Use a Redis storage URI such as `redis://localhost:6379/0` for rate limiting
-when running multiple workers or containers.
+when running multiple workers or containers. `MAX_CONCURRENT_JOBS` limits
+simultaneous OCR/OpenAI jobs per running Python process.
 
 ## Command Line
 

@@ -686,6 +686,31 @@ class TestWebApp:
         uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
         assert uploads == [], "Uploaded file should be deleted after processing"
 
+    def test_extract_returns_503_when_processing_slots_are_full(
+        self, flask_client, monkeypatch
+    ):
+        client, tmp_path = flask_client
+        import web_app
+
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        assert web_app.acquire_processing_slot()
+        try:
+            data = {
+                "file": (io.BytesIO(b"dummy"), "busy.png"),
+                "mode": "extract",
+            }
+            resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+        finally:
+            web_app.release_processing_slot()
+
+        assert resp.status_code == 503
+        assert "Server is busy" in resp.get_json()["error"]
+        mock_extract.assert_not_called()
+        uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
+        assert uploads == []
+
     def test_extract_full_mode_calls_classify_and_summarize(self, flask_client, monkeypatch):
         client, tmp_path = flask_client
 
@@ -974,6 +999,31 @@ class TestWebApp:
         assert [resp.status_code for resp in responses] == [200, 200, 200, 429]
         assert "Too many requests" in responses[-1].get_json()["error"]
         assert mock_extract.call_count == 3
+
+    def test_explain_returns_503_when_processing_slots_are_full(
+        self, flask_client, monkeypatch
+    ):
+        client, tmp_path = flask_client
+        import web_app
+
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        assert web_app.acquire_processing_slot()
+        try:
+            data = {
+                "file": (io.BytesIO(b"dummy"), "busy.pdf"),
+                "language": "english",
+            }
+            resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
+        finally:
+            web_app.release_processing_slot()
+
+        assert resp.status_code == 503
+        assert "Server is busy" in resp.get_json()["error"]
+        mock_extract.assert_not_called()
+        uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
+        assert uploads == []
 
     def test_explain_empty_text_returns_422(self, flask_client, monkeypatch):
         client, _ = flask_client
