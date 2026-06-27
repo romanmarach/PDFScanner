@@ -39,6 +39,12 @@ OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour"
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
+FULL_ANALYSIS_ENABLED = os.environ.get("FULL_ANALYSIS_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "")
 TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
@@ -254,6 +260,9 @@ def extract_document():
 
     if mode not in {"extract", "full"}:
         return jsonify({"error": "Invalid processing mode."}), 400
+
+    if mode == "full" and not FULL_ANALYSIS_ENABLED:
+        return jsonify({"error": "Analyze mode is temporarily unavailable."}), 503
 
     try:
         verify_request_turnstile()

@@ -507,6 +507,7 @@ def flask_client(monkeypatch, tmp_path):
     monkeypatch.setattr("web_app.validate_pdf_page_count", MagicMock())
     monkeypatch.setattr(web_app.limiter, "enabled", False)
     monkeypatch.setattr("web_app.TURNSTILE_ENABLED", False)
+    monkeypatch.setattr("web_app.FULL_ANALYSIS_ENABLED", True)
     web_app.limiter.reset()
 
     web_app.app.config["TESTING"] = True
@@ -712,6 +713,48 @@ class TestWebApp:
         }
         resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_extract_full_mode_can_be_disabled_before_upload_save(
+        self, flask_client, monkeypatch
+    ):
+        client, tmp_path = flask_client
+
+        monkeypatch.setattr("web_app.FULL_ANALYSIS_ENABLED", False)
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+        mock_verify = MagicMock()
+        monkeypatch.setattr("web_app.verify_request_turnstile", mock_verify)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
+            "mode": "full",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 503
+        assert "Analyze mode is temporarily unavailable" in resp.get_json()["error"]
+        mock_verify.assert_not_called()
+        mock_extract.assert_not_called()
+        assert not (tmp_path / "uploads").exists()
+
+    def test_extract_text_mode_still_works_when_full_mode_is_disabled(
+        self, flask_client, monkeypatch
+    ):
+        client, _ = flask_client
+
+        monkeypatch.setattr("web_app.FULL_ANALYSIS_ENABLED", False)
+        mock_extract = MagicMock(return_value="plain text")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        data = {
+            "file": (io.BytesIO(b"dummy"), "invoice.pdf"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["text"] == "plain text"
+        mock_extract.assert_called_once()
 
     def test_extract_requires_turnstile_before_saving_upload(self, flask_client, monkeypatch):
         client, tmp_path = flask_client

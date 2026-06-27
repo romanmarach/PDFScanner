@@ -86,6 +86,7 @@ OPENAI_RATE_LIMIT_SHORT=3 per hour
 OPENAI_RATE_LIMIT_DAILY=10 per day
 RATE_LIMIT_STORAGE_URI=memory://
 MAX_CONCURRENT_JOBS=1
+FULL_ANALYSIS_ENABLED=true
 TURNSTILE_ENABLED=true
 TURNSTILE_SITE_KEY=your_turnstile_site_key
 TURNSTILE_SECRET_KEY=your_turnstile_secret_key
@@ -93,9 +94,11 @@ TURNSTILE_SECRET_KEY=your_turnstile_secret_key
 
 Use a Redis storage URI such as `redis://localhost:6379/0` for rate limiting
 when running multiple workers or containers. `MAX_CONCURRENT_JOBS` limits
-simultaneous OCR/OpenAI jobs per running Python process. Leave Turnstile
-disabled for local-only testing if you do not have keys yet, but set
-`TURNSTILE_ENABLED=true` with Cloudflare Turnstile keys before public launch.
+simultaneous OCR/OpenAI jobs per running Python process.
+`FULL_ANALYSIS_ENABLED=false` disables `/api/extract` Analyze mode while keeping
+plain text extraction available. Leave Turnstile disabled for local-only testing
+if you do not have keys yet, but set `TURNSTILE_ENABLED=true` with Cloudflare
+Turnstile keys before public launch.
 
 ## Command Line
 
