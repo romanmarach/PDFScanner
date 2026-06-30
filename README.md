@@ -53,7 +53,8 @@ For OpenAI classification and summarization, create a `.env` file:
 OPENAI_API_KEY=your_api_key_here
 ```
 
-Basic text extraction does not require an OpenAI API key.
+Basic text extraction does not require an OpenAI API key. Do not commit `.env`
+files or API keys.
 
 ## Web Application
 
@@ -72,33 +73,9 @@ Uploaded files are deleted after processing. JSON downloads are generated in
 the browser from the current result and are not retained by the web server.
 
 The document explainer is available at `/`, and the text extractor is available
-at `/extract`. The explainer uses `gpt-5.4-mini` by default. Override it with:
+at `/extract`.
 
-```env
-OPENAI_EXPLAIN_MODEL=your_model_name
-```
-
-Production safety limits can be adjusted with environment variables:
-
-```env
-MAX_PDF_PAGES=10
-OPENAI_RATE_LIMIT_SHORT=3 per hour
-OPENAI_RATE_LIMIT_DAILY=10 per day
-RATE_LIMIT_STORAGE_URI=memory://
-MAX_CONCURRENT_JOBS=1
-FULL_ANALYSIS_ENABLED=true
-TURNSTILE_ENABLED=true
-TURNSTILE_SITE_KEY=your_turnstile_site_key
-TURNSTILE_SECRET_KEY=your_turnstile_secret_key
-```
-
-Use a Redis storage URI such as `redis://localhost:6379/0` for rate limiting
-when running multiple workers or containers. `MAX_CONCURRENT_JOBS` limits
-simultaneous OCR/OpenAI jobs per running Python process.
-`FULL_ANALYSIS_ENABLED=false` disables `/api/extract` Analyze mode while keeping
-plain text extraction available. Leave Turnstile disabled for local-only testing
-if you do not have keys yet, but set `TURNSTILE_ENABLED=true` with Cloudflare
-Turnstile keys before public launch.
+Runtime configuration is handled through environment variables.
 
 ## Command Line
 
@@ -134,20 +111,11 @@ docker compose run --rm pdfscanner data/samples/invoice_test.png
 
 Use `--mode full` to enable OpenAI classification and summarization.
 
-## PaddleOCR-VL Experiment
-
-An isolated PaddleOCR-VL test is available at `experiments/paddleocr_vl_extract.py`.
-It uses the local `PaddleOCR-VL-0.9B` model with `PP-DocLayoutV2` for basic text extraction.
-Run it with `python experiments\paddleocr_vl_extract.py <document-path>`.
-Its output is saved under `output/paddleocr_vl/`.
-This experiment does not modify or run through the Flask application or the primary PP-OCRv5 pipeline.
-
 ## Project Structure
 
 ```text
 agent/                  Core extraction, classification, and summarization
 data/samples/           Sample documents
-experiments/            Isolated model experiments
 static/                 Web interface assets
 templates/              Flask HTML templates
 tests/                  Automated tests

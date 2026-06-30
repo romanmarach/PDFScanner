@@ -39,7 +39,7 @@ OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour"
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
-FULL_ANALYSIS_ENABLED = os.environ.get("FULL_ANALYSIS_ENABLED", "true").lower() in {
+OPENAI_FEATURES_ENABLED = os.environ.get("OPENAI_FEATURES_ENABLED", "true").lower() in {
     "1",
     "true",
     "yes",
@@ -207,6 +207,10 @@ def server_busy_response():
     return jsonify({"error": "Server is busy. Please try again shortly."}), 503
 
 
+def openai_unavailable_response():
+    return jsonify({"error": "AI document features are temporarily unavailable."}), 503
+
+
 def parse_jsonish(value):
     if not isinstance(value, str):
         return value
@@ -261,8 +265,8 @@ def extract_document():
     if mode not in {"extract", "full"}:
         return jsonify({"error": "Invalid processing mode."}), 400
 
-    if mode == "full" and not FULL_ANALYSIS_ENABLED:
-        return jsonify({"error": "Analyze mode is temporarily unavailable."}), 503
+    if mode == "full" and not OPENAI_FEATURES_ENABLED:
+        return openai_unavailable_response()
 
     try:
         verify_request_turnstile()
@@ -330,6 +334,9 @@ def extract_document():
 @limiter.limit(OPENAI_RATE_LIMIT_SHORT)
 @limiter.limit(OPENAI_RATE_LIMIT_DAILY)
 def explain_uploaded_document():
+    if not OPENAI_FEATURES_ENABLED:
+        return openai_unavailable_response()
+
     uploaded_file = request.files.get("file")
     language_key = request.form.get("language", "english").lower()
 
