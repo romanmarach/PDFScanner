@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 from threading import BoundedSemaphore
 
@@ -32,10 +34,15 @@ ALLOWED_LANGUAGES = {
     "polish": "Polish",
     "russian": "Russian",
 }
+GENERIC_PROCESSING_ERROR = "Something went wrong while processing the document. Please try again."
 MAX_EXPLAIN_CHARS = 60_000
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
 MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "10"))
+MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(50_000_000)))
+MAX_DOCX_UNCOMPRESSED = int(
+    os.environ.get("MAX_DOCX_UNCOMPRESSED", str(100 * 1024 * 1024))
+)
 OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour")
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/0")
@@ -59,6 +66,11 @@ else:
 
 
 app = Flask(__name__)
+if __name__ != "__main__":
+    gunicorn_logger = logging.getLogger("gunicorn.error")
+    if gunicorn_logger.handlers:
+        app.logger.handlers = gunicorn_logger.handlers
+        app.logger.setLevel(gunicorn_logger.level)
 if TRUSTED_PROXY_COUNT:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXY_COUNT)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
@@ -114,6 +126,43 @@ def validate_pdf_page_count(path: Path) -> None:
             f"PDFs are limited to {MAX_PDF_PAGES} pages. This PDF has {page_count} pages."
         )
 
+
+
+
+def validate_image(path: Path) -> None:
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        return
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(path) as img:
+            width, height = img.size
+    except (UnidentifiedImageError, OSError) as exc:
+        raise PdfValidationError("This image is corrupt or not a real image.") from exc
+
+    if width * height > MAX_IMAGE_PIXELS:
+        raise PdfValidationError("This image's dimensions are too large to process.")
+
+
+def validate_docx(path: Path) -> None:
+    if path.suffix.lower() != ".docx":
+        return
+
+    try:
+        with zipfile.ZipFile(path) as zf:
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise PdfValidationError("This DOCX file is corrupt or unreadable.") from exc
+
+    if total_uncompressed > MAX_DOCX_UNCOMPRESSED:
+        raise PdfValidationError("This DOCX expands too large to process.")
+
+
+def validate_upload_resource_limits(path: Path) -> None:
+    validate_pdf_page_count(path)
+    validate_image(path)
+    validate_docx(path)
 
 def acquire_processing_slot() -> bool:
     return processing_slots.acquire(blocking=False)
@@ -275,7 +324,7 @@ def extract_document():
     uploaded_file.save(stored_path)
 
     try:
-        validate_pdf_page_count(stored_path)
+        validate_upload_resource_limits(stored_path)
         if not acquire_processing_slot():
             return server_busy_response()
 
@@ -314,8 +363,9 @@ def extract_document():
             release_processing_slot()
     except PdfValidationError as exc:
         return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    except Exception:
+        app.logger.exception("Extract request failed")
+        return jsonify({"error": GENERIC_PROCESSING_ERROR}), 500
     finally:
         try:
             stored_path.unlink(missing_ok=True)
@@ -358,7 +408,7 @@ def explain_uploaded_document():
     try:
         from agent.doc_explain import explain_document, translate_explanation
 
-        validate_pdf_page_count(stored_path)
+        validate_upload_resource_limits(stored_path)
         if not acquire_processing_slot():
             return server_busy_response()
 
@@ -390,8 +440,9 @@ def explain_uploaded_document():
             release_processing_slot()
     except PdfValidationError as exc:
         return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    except Exception:
+        app.logger.exception("Explain request failed")
+        return jsonify({"error": GENERIC_PROCESSING_ERROR}), 500
     finally:
         try:
             stored_path.unlink(missing_ok=True)

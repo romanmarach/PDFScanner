@@ -583,6 +583,126 @@ class TestWebPdfPageValidation:
             web_app.validate_pdf_page_count(pdf_path)
 
 
+class TestWebUploadResourceValidation:
+    def test_validate_image_allows_image_at_pixel_limit(self, monkeypatch, tmp_path):
+        import web_app
+
+        class FakeImage:
+            size = (web_app.MAX_IMAGE_PIXELS, 1)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        mock_open = MagicMock(return_value=FakeImage())
+        monkeypatch.setattr("PIL.Image.open", mock_open)
+
+        image_path = tmp_path / "scan.png"
+        image_path.write_bytes(b"not decoded by test")
+
+        web_app.validate_image(image_path)
+        mock_open.assert_called_once_with(image_path)
+
+    def test_validate_image_rejects_image_over_pixel_limit(self, monkeypatch, tmp_path):
+        import web_app
+
+        class FakeImage:
+            size = (web_app.MAX_IMAGE_PIXELS + 1, 1)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        monkeypatch.setattr("PIL.Image.open", MagicMock(return_value=FakeImage()))
+
+        image_path = tmp_path / "huge.jpg"
+        image_path.write_bytes(b"not decoded by test")
+
+        with pytest.raises(web_app.PdfValidationError, match="dimensions are too large"):
+            web_app.validate_image(image_path)
+
+    def test_validate_image_rejects_corrupt_image(self, monkeypatch, tmp_path):
+        from PIL import UnidentifiedImageError
+        import web_app
+
+        monkeypatch.setattr(
+            "PIL.Image.open",
+            MagicMock(side_effect=UnidentifiedImageError("bad image")),
+        )
+
+        image_path = tmp_path / "corrupt.png"
+        image_path.write_bytes(b"not an image")
+
+        with pytest.raises(web_app.PdfValidationError, match="corrupt or not a real image"):
+            web_app.validate_image(image_path)
+
+    def test_validate_docx_allows_docx_at_uncompressed_limit(self, monkeypatch, tmp_path):
+        import web_app
+
+        fake_info = MagicMock(file_size=web_app.MAX_DOCX_UNCOMPRESSED)
+        fake_zip = MagicMock()
+        fake_zip.__enter__.return_value.infolist.return_value = [fake_info]
+        fake_zip.__exit__.return_value = False
+        mock_zip = MagicMock(return_value=fake_zip)
+        monkeypatch.setattr("web_app.zipfile.ZipFile", mock_zip)
+
+        docx_path = tmp_path / "doc.docx"
+        docx_path.write_bytes(b"not opened by test")
+
+        web_app.validate_docx(docx_path)
+        mock_zip.assert_called_once_with(docx_path)
+
+    def test_validate_docx_rejects_docx_over_uncompressed_limit(self, monkeypatch, tmp_path):
+        import web_app
+
+        fake_info = MagicMock(file_size=web_app.MAX_DOCX_UNCOMPRESSED + 1)
+        fake_zip = MagicMock()
+        fake_zip.__enter__.return_value.infolist.return_value = [fake_info]
+        fake_zip.__exit__.return_value = False
+        monkeypatch.setattr("web_app.zipfile.ZipFile", MagicMock(return_value=fake_zip))
+
+        docx_path = tmp_path / "large.docx"
+        docx_path.write_bytes(b"not opened by test")
+
+        with pytest.raises(web_app.PdfValidationError, match="expands too large"):
+            web_app.validate_docx(docx_path)
+
+    def test_validate_docx_rejects_corrupt_docx(self, monkeypatch, tmp_path):
+        import web_app
+
+        monkeypatch.setattr(
+            "web_app.zipfile.ZipFile",
+            MagicMock(side_effect=web_app.zipfile.BadZipFile("bad zip")),
+        )
+
+        docx_path = tmp_path / "corrupt.docx"
+        docx_path.write_bytes(b"not a zip")
+
+        with pytest.raises(web_app.PdfValidationError, match="corrupt or unreadable"):
+            web_app.validate_docx(docx_path)
+
+    def test_validate_upload_resource_limits_runs_each_validator(self, monkeypatch, tmp_path):
+        import web_app
+
+        mock_pdf = MagicMock()
+        mock_image = MagicMock()
+        mock_docx = MagicMock()
+        monkeypatch.setattr("web_app.validate_pdf_page_count", mock_pdf)
+        monkeypatch.setattr("web_app.validate_image", mock_image)
+        monkeypatch.setattr("web_app.validate_docx", mock_docx)
+
+        path = tmp_path / "scan.png"
+        web_app.validate_upload_resource_limits(path)
+
+        mock_pdf.assert_called_once_with(path)
+        mock_image.assert_called_once_with(path)
+        mock_docx.assert_called_once_with(path)
+
+
 class TestTurnstileVerification:
     def test_verify_turnstile_response_skips_when_disabled(self, monkeypatch):
         import web_app
@@ -713,6 +833,56 @@ class TestWebApp:
         }
         resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
+
+    def test_extract_rejects_oversized_image_before_ocr(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+        monkeypatch.setattr(
+            "web_app.validate_image",
+            MagicMock(
+                side_effect=web_app.PdfValidationError(
+                    "This image's dimensions are too large to process."
+                )
+            ),
+        )
+
+        data = {
+            "file": (io.BytesIO(b"not decoded by test"), "huge.png"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 400
+        assert "dimensions are too large" in resp.get_json()["error"]
+        mock_extract.assert_not_called()
+
+    def test_extract_rejects_large_docx_before_extraction(self, flask_client, monkeypatch):
+        client, _ = flask_client
+        import web_app
+
+        mock_extract = MagicMock(return_value="should not run")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+        monkeypatch.setattr(
+            "web_app.validate_docx",
+            MagicMock(
+                side_effect=web_app.PdfValidationError(
+                    "This DOCX expands too large to process."
+                )
+            ),
+        )
+
+        data = {
+            "file": (io.BytesIO(b"not opened by test"), "large.docx"),
+            "mode": "extract",
+        }
+        resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 400
+        assert "expands too large" in resp.get_json()["error"]
+        mock_extract.assert_not_called()
 
     def test_extract_full_mode_can_be_disabled_before_upload_save(
         self, flask_client, monkeypatch
@@ -875,7 +1045,7 @@ class TestWebApp:
         assert web_app.acquire_processing_slot()
         try:
             data = {
-                "file": (io.BytesIO(b"dummy"), "busy.png"),
+                "file": (io.BytesIO(b"dummy"), "busy.pdf"),
                 "mode": "extract",
             }
             resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
@@ -1051,7 +1221,11 @@ class TestWebApp:
         resp = client.post("/api/extract", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 500
-        assert "error" in resp.get_json()
+        body = resp.get_json()
+        assert body["error"] == "Something went wrong while processing the document. Please try again."
+        response_text = resp.get_data(as_text=True)
+        assert "ocr exploded" not in response_text
+        assert "RuntimeError" not in response_text
         uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
         assert uploads == [], "Upload must be deleted even when processing fails"
 
@@ -1302,7 +1476,11 @@ class TestWebApp:
         resp = client.post("/api/explain", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 500
-        assert "error" in resp.get_json()
+        body = resp.get_json()
+        assert body["error"] == "Something went wrong while processing the document. Please try again."
+        response_text = resp.get_data(as_text=True)
+        assert "api exploded" not in response_text
+        assert "RuntimeError" not in response_text
         uploads = list((tmp_path / "uploads").iterdir()) if (tmp_path / "uploads").exists() else []
         assert uploads == [], "Upload must be deleted even when processing fails"
 
