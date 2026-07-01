@@ -1,6 +1,10 @@
+import os
 import sys
 import types
 from unittest.mock import MagicMock
+
+
+os.environ["RATE_LIMIT_STORAGE_URI"] = "memory://"
 
 
 def pytest_addoption(parser):

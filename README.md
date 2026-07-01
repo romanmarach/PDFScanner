@@ -58,6 +58,17 @@ files or API keys.
 
 ## Web Application
 
+Rate limiting uses Redis. For local development, start Redis before the Flask
+app:
+
+```cmd
+docker compose up -d redis
+```
+
+The default `RATE_LIMIT_STORAGE_URI` is `redis://localhost:6379/0`, which also
+works in `.env` when running `python web_app.py` on your machine. If the Flask
+app later runs inside the Compose network, use `redis://redis:6379/0` instead.
+
 Start the Flask application:
 
 ```cmd

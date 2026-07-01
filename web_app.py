@@ -37,7 +37,7 @@ MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
 MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "10"))
 OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour")
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
-RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://")
+RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/0")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
 OPENAI_FEATURES_ENABLED = os.environ.get("OPENAI_FEATURES_ENABLED", "true").lower() in {
     "1",
