@@ -1,9 +1,11 @@
 import os
+# Skip Paddle's model-source network probe during app startup.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 import tempfile
+
 import pdfplumber
 import docx
 from paddleocr import PaddleOCR
-os.environ["PADDLE_PDX_MODEL_SOURCE_CHECK"] = "True"
 
 # Source of truth for what extract_text() can handle. The CLI and web app
 # derive their accepted-file lists from this; the web app may expose a
@@ -159,3 +161,4 @@ def extract_docx(path: str) -> str:
     """Extract text from Word documents."""
     doc = docx.Document(path)
     return "\n".join([para.text for para in doc.paragraphs])
+

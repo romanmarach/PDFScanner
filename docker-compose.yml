@@ -2,24 +2,53 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
-  pdfscanner:
+  web:
     build: .
     env_file:
       - .env
     environment:
-      - FLAGS_use_mkldnn=0
+      FLAGS_use_mkldnn: "0"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+    ports:
+      - "5000:5000"
     volumes:
-      # Mount your documents folder
+      - paddlex-cache:/root/.paddlex
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cli:
+    build: .
+    profiles: ["cli"]
+    env_file:
+      - .env
+    environment:
+      FLAGS_use_mkldnn: "0"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+    volumes:
       - ./data:/app/data
-      # Mount output folder to get results
       - ./output:/app/output
-    # Default: extract mode. Override with: docker compose run pdfscanner <file> --mode full
+      - paddlex-cache:/root/.paddlex
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "agent"]
     command: ["data/samples"]
 
 volumes:
   redis-data:
+  paddlex-cache:

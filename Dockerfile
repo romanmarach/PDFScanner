@@ -1,6 +1,12 @@
 FROM python:3.12-slim
 
-# Install system dependencies for PaddleOCR
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FLAGS_use_mkldnn=0 \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+
+# Install system dependencies for PaddleOCR and image/PDF processing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libglib2.0-0 \
@@ -12,15 +18,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
 COPY agent/ ./agent/
+COPY static/ ./static/
+COPY templates/ ./templates/
+COPY web_app.py ./
 
-# Create output directory
-RUN mkdir -p /app/output
+RUN mkdir -p /app/uploads /app/output
 
-# Default command
-ENTRYPOINT ["python", "-m", "agent"]
+EXPOSE 5000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "web_app:app"]

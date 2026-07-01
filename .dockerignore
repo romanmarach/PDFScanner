@@ -17,6 +17,7 @@ __pycache__/
 
 # Output (mount as volume instead)
 output/
+uploads/
 
 # IDE
 .vscode/

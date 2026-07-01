@@ -25,6 +25,7 @@ and summarization.
 
 - Python 3.12
 - PaddlePaddle and PaddleOCR
+- Docker Desktop, when running the containerized web stack
 - An OpenAI API key only when using classification and summarization
 
 ## Installation
@@ -58,16 +59,33 @@ files or API keys.
 
 ## Web Application
 
-Rate limiting uses Redis. For local development, start Redis before the Flask
-app:
+### Docker
+
+The Docker stack runs the Flask web app and Redis together:
+
+```cmd
+docker compose up --build
+```
+
+Open `http://127.0.0.1:5000` in a browser.
+
+Inside Docker, the app uses `RATE_LIMIT_STORAGE_URI=redis://redis:6379/0`.
+That Redis instance is shared by the web app and persists rate-limit data in the
+`redis-data` Docker volume. PaddleOCR model files are cached in the
+`paddlex-cache` Docker volume so container recreation does not redownload them
+after the first successful model fetch.
+
+### Local Python
+
+Rate limiting uses Redis. For local development without containerizing the web
+app, start Redis before Flask:
 
 ```cmd
 docker compose up -d redis
 ```
 
 The default `RATE_LIMIT_STORAGE_URI` is `redis://localhost:6379/0`, which also
-works in `.env` when running `python web_app.py` on your machine. If the Flask
-app later runs inside the Compose network, use `redis://redis:6379/0` instead.
+works in `.env` when running `python web_app.py` on your machine.
 
 Start the Flask application:
 
@@ -111,13 +129,10 @@ python -m agent data\samples
 CLI results are saved to `output/results.json` and
 `output/extracted_text.txt`.
 
-## Docker
-
-Build and run the configured container:
+To run the CLI through Docker:
 
 ```cmd
-docker compose build
-docker compose run --rm pdfscanner data/samples/invoice_test.png
+docker compose run --rm cli data/samples/invoice_test.png
 ```
 
 Use `--mode full` to enable OpenAI classification and summarization.
@@ -126,7 +141,6 @@ Use `--mode full` to enable OpenAI classification and summarization.
 
 ```text
 agent/                  Core extraction, classification, and summarization
-data/samples/           Sample documents
 static/                 Web interface assets
 templates/              Flask HTML templates
 tests/                  Automated tests
@@ -137,4 +151,5 @@ web_app.py              Flask application entry point
 
 - The first PaddleOCR run may download model files and take longer to start.
 - OCR processing time depends on document size and available CPU/GPU resources.
-- Files in `output/`, `.env`, and local virtual environments are ignored by Git.
+- Files in `output/`, `uploads/`, `.env`, and local virtual environments are ignored by Git.
+
