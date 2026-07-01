@@ -75,6 +75,16 @@ That Redis instance is shared by the web app and persists rate-limit data in the
 `paddlex-cache` Docker volume so container recreation does not redownload them
 after the first successful model fetch.
 
+Redis is bound to `127.0.0.1:6379` on the host for local debugging and local
+Python runs. The web app is bound to `127.0.0.1:5000` on the host. Neither
+service is published on all host network interfaces.
+
+By default, `TRUSTED_PROXY_COUNT=0`, so forwarded client-IP headers are ignored.
+When deploying behind exactly one trusted reverse proxy, such as Cloudflare or
+nginx, set `TRUSTED_PROXY_COUNT=1` and set Gunicorn's `FORWARDED_ALLOW_IPS` to
+the proxy IP range or to `*` only when the app port is reachable exclusively
+through that proxy.
+
 ### Local Python
 
 Rate limiting uses Redis. For local development without containerizing the web
@@ -152,4 +162,3 @@ web_app.py              Flask application entry point
 - The first PaddleOCR run may download model files and take longer to start.
 - OCR processing time depends on document size and available CPU/GPU resources.
 - Files in `output/`, `uploads/`, `.env`, and local virtual environments are ignored by Git.
-

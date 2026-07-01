@@ -11,6 +11,7 @@ from flask import Flask, jsonify, render_template, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
 from agent.text_extraction import EXTRACTABLE_EXTENSIONS, extract_text
@@ -49,6 +50,7 @@ TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "")
 TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 TURNSTILE_TIMEOUT_SECONDS = float(os.environ.get("TURNSTILE_TIMEOUT_SECONDS", "5"))
+TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "0"))
 TURNSTILE_ENABLED_ENV = os.environ.get("TURNSTILE_ENABLED")
 if TURNSTILE_ENABLED_ENV is None:
     TURNSTILE_ENABLED = bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY)
@@ -57,6 +59,8 @@ else:
 
 
 app = Flask(__name__)
+if TRUSTED_PROXY_COUNT:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXY_COUNT)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 limiter = Limiter(
     key_func=get_remote_address,
@@ -119,17 +123,6 @@ def release_processing_slot() -> None:
     processing_slots.release()
 
 
-def request_remote_ip() -> str | None:
-    cloudflare_ip = request.headers.get("CF-Connecting-IP")
-    if cloudflare_ip:
-        return cloudflare_ip
-
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
-
-    return request.remote_addr
-
 
 def verify_turnstile_response(token: str | None, remote_ip: str | None) -> dict:
     if not TURNSTILE_ENABLED:
@@ -176,7 +169,7 @@ def verify_turnstile_response(token: str | None, remote_ip: str | None) -> dict:
 def verify_request_turnstile() -> None:
     verify_turnstile_response(
         request.form.get("cf-turnstile-response"),
-        request_remote_ip(),
+        request.remote_addr,
     )
 
 

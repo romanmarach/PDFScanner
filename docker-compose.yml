@@ -4,7 +4,7 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -21,8 +21,9 @@ services:
       FLAGS_use_mkldnn: "0"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+      TRUSTED_PROXY_COUNT: "0"
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - paddlex-cache:/root/.paddlex
     depends_on:

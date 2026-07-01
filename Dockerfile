@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     FLAGS_use_mkldnn=0 \
-    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True \
+    FORWARDED_ALLOW_IPS=127.0.0.1,::1
 
 # Install system dependencies for PaddleOCR and image/PDF processing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
