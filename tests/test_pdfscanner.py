@@ -1150,6 +1150,37 @@ class TestWebApp:
         assert [resp.status_code for resp in responses] == [200, 200, 200, 200]
         assert mock_extract.call_count == 4
 
+    def test_extract_text_only_rate_limit_blocks_thirty_first_request(
+        self, flask_client, monkeypatch
+    ):
+        client, _ = flask_client
+        import web_app
+
+        monkeypatch.setattr(web_app.limiter, "enabled", True)
+        web_app.limiter.reset()
+        mock_extract = MagicMock(return_value="plain extracted text")
+        monkeypatch.setattr("web_app.extract_text", mock_extract)
+
+        responses = []
+        for _ in range(31):
+            data = {
+                "file": (io.BytesIO(b"dummy"), "document.pdf"),
+                "mode": "extract",
+            }
+            responses.append(
+                client.post(
+                    "/api/extract",
+                    data=data,
+                    content_type="multipart/form-data",
+                    environ_overrides={"REMOTE_ADDR": "203.0.113.13"},
+                )
+            )
+
+        assert [resp.status_code for resp in responses[:30]] == [200] * 30
+        assert responses[-1].status_code == 429
+        assert "Too many requests" in responses[-1].get_json()["error"]
+        assert mock_extract.call_count == 30
+
     def test_extract_full_mode_keeps_summary_when_classification_fails(
         self, flask_client, monkeypatch
     ):

@@ -45,6 +45,7 @@ MAX_DOCX_UNCOMPRESSED = int(
 )
 OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour")
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
+EXTRACT_RATE_LIMIT = os.environ.get("EXTRACT_RATE_LIMIT", "30 per hour")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/0")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
 OPENAI_FEATURES_ENABLED = os.environ.get("OPENAI_FEATURES_ENABLED", "true").lower() in {
@@ -286,6 +287,10 @@ def extractor():
 
 
 @app.post("/api/extract")
+@limiter.limit(
+    EXTRACT_RATE_LIMIT,
+    exempt_when=lambda: request.form.get("mode", "extract") != "extract",
+)
 @limiter.limit(
     OPENAI_RATE_LIMIT_SHORT,
     exempt_when=lambda: request.form.get("mode", "extract") != "full",
