@@ -1,33 +1,46 @@
+# Git and local tooling
+.git/
+.gitignore
+.github/
+.agents/
+.codex/
+.claude/
+.vscode/
+.idea/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python/runtime cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 # Virtual environments
 venv/
 .venv/
+env/
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Git
-.git/
-.gitignore
-
-# Environment files (pass at runtime instead)
-.env
-*.env
-
-# Output (mount as volume instead)
-output/
+# Runtime user data
 uploads/
+output/
 
-# IDE
-.vscode/
-.idea/
-.claude/
-
-# Test data (mount as volume instead)
+# Local-only project files
 data/
-
-# Misc
-*.md
-NOTES.txt
+design/
+experiments/
 tests/
+requirements-dev.txt
+NOTES.txt
+*.md
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

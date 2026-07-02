@@ -21,11 +21,17 @@ services:
       FLAGS_use_mkldnn: "0"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+      # Deployment behind nginx/Cloudflare:
+      # This environment block overrides .env, so change proxy settings here.
+      # For exactly one trusted reverse proxy, set TRUSTED_PROXY_COUNT to "1".
+      # Also widen FORWARDED_ALLOW_IPS to the proxy/Docker bridge IP, or to "*"
+      # only when this app port is reachable exclusively through that proxy.
       TRUSTED_PROXY_COUNT: "0"
+      # FORWARDED_ALLOW_IPS: "*"
     ports:
       - "127.0.0.1:5000:5000"
     volumes:
-      - paddlex-cache:/root/.paddlex
+      - paddlex-cache:/home/appuser/.paddlex
     depends_on:
       redis:
         condition: service_healthy
@@ -43,7 +49,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./output:/app/output
-      - paddlex-cache:/root/.paddlex
+      - paddlex-cache:/home/appuser/.paddlex
     depends_on:
       redis:
         condition: service_healthy

@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 from threading import BoundedSemaphore
 
@@ -32,12 +34,36 @@ ALLOWED_LANGUAGES = {
     "polish": "Polish",
     "russian": "Russian",
 }
+GENERIC_PROCESSING_ERROR = "Something went wrong while processing the document. Please try again."
+# 'unsafe-inline' in style-src is required by the print/PDF feature, which
+# renders an iframe srcdoc containing an inline <style> block that inherits
+# this page-level policy.
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self' https://challenges.cloudflare.com",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data:",
+        "connect-src 'self'",
+        "frame-src https://challenges.cloudflare.com",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+    ]
+)
 MAX_EXPLAIN_CHARS = 60_000
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
 MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "10"))
+MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(50_000_000)))
+MAX_DOCX_UNCOMPRESSED = int(
+    os.environ.get("MAX_DOCX_UNCOMPRESSED", str(100 * 1024 * 1024))
+)
 OPENAI_RATE_LIMIT_SHORT = os.environ.get("OPENAI_RATE_LIMIT_SHORT", "3 per hour")
 OPENAI_RATE_LIMIT_DAILY = os.environ.get("OPENAI_RATE_LIMIT_DAILY", "10 per day")
+EXTRACT_RATE_LIMIT = os.environ.get("EXTRACT_RATE_LIMIT", "30 per hour")
 RATE_LIMIT_STORAGE_URI = os.environ.get("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/0")
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "1"))
 OPENAI_FEATURES_ENABLED = os.environ.get("OPENAI_FEATURES_ENABLED", "true").lower() in {
@@ -59,6 +85,11 @@ else:
 
 
 app = Flask(__name__)
+if __name__ != "__main__":
+    gunicorn_logger = logging.getLogger("gunicorn.error")
+    if gunicorn_logger.handlers:
+        app.logger.handlers = gunicorn_logger.handlers
+        app.logger.setLevel(gunicorn_logger.level)
 if TRUSTED_PROXY_COUNT:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXY_COUNT)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
@@ -67,6 +98,10 @@ limiter = Limiter(
     app=app,
     default_limits=[],
     storage_uri=RATE_LIMIT_STORAGE_URI,
+    # If Redis becomes unreachable at runtime, fall back to per-process
+    # in-memory limits instead of failing every rate-limited request.
+    swallow_errors=True,
+    in_memory_fallback_enabled=True,
 )
 processing_slots = BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
@@ -86,6 +121,24 @@ class TurnstileValidationError(ValueError):
 class TurnstileConfigError(RuntimeError):
     """Raised when bot protection is enabled but not configured."""
 
+
+def cleanup_upload_dir() -> None:
+    if not UPLOAD_DIR.exists():
+        return
+
+    for upload_path in UPLOAD_DIR.iterdir():
+        try:
+            if upload_path.is_file() or upload_path.is_symlink():
+                upload_path.unlink()
+        except OSError:
+            app.logger.warning(
+                "Failed to delete stale upload: %s",
+                upload_path,
+                exc_info=True,
+            )
+
+
+cleanup_upload_dir()
 
 def allowed_file(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
@@ -114,6 +167,43 @@ def validate_pdf_page_count(path: Path) -> None:
             f"PDFs are limited to {MAX_PDF_PAGES} pages. This PDF has {page_count} pages."
         )
 
+
+
+
+def validate_image(path: Path) -> None:
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        return
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(path) as img:
+            width, height = img.size
+    except (UnidentifiedImageError, OSError) as exc:
+        raise PdfValidationError("This image is corrupt or not a real image.") from exc
+
+    if width * height > MAX_IMAGE_PIXELS:
+        raise PdfValidationError("This image's dimensions are too large to process.")
+
+
+def validate_docx(path: Path) -> None:
+    if path.suffix.lower() != ".docx":
+        return
+
+    try:
+        with zipfile.ZipFile(path) as zf:
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise PdfValidationError("This DOCX file is corrupt or unreadable.") from exc
+
+    if total_uncompressed > MAX_DOCX_UNCOMPRESSED:
+        raise PdfValidationError("This DOCX expands too large to process.")
+
+
+def validate_upload_resource_limits(path: Path) -> None:
+    validate_pdf_page_count(path)
+    validate_image(path)
+    validate_docx(path)
 
 def acquire_processing_slot() -> bool:
     return processing_slots.acquire(blocking=False)
@@ -186,6 +276,15 @@ def upload_names(filename: str) -> tuple[str, str]:
     return display_name, f"{uuid.uuid4().hex}{suffix}"
 
 
+@app.after_request
+def apply_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    return response
+
+
 @app.errorhandler(413)
 def upload_too_large(error):
     return jsonify({"error": f"File is larger than the {MAX_UPLOAD_MB} MB upload limit."}), 413
@@ -214,6 +313,12 @@ def parse_jsonish(value):
         return value
 
 
+@app.get("/healthz")
+def healthz():
+    """Liveness probe for Docker healthchecks and load balancers."""
+    return jsonify({"status": "ok"})
+
+
 @app.get("/")
 def index():
     return render_template(
@@ -237,6 +342,10 @@ def extractor():
 
 
 @app.post("/api/extract")
+@limiter.limit(
+    EXTRACT_RATE_LIMIT,
+    exempt_when=lambda: request.form.get("mode", "extract") != "extract",
+)
 @limiter.limit(
     OPENAI_RATE_LIMIT_SHORT,
     exempt_when=lambda: request.form.get("mode", "extract") != "full",
@@ -275,7 +384,7 @@ def extract_document():
     uploaded_file.save(stored_path)
 
     try:
-        validate_pdf_page_count(stored_path)
+        validate_upload_resource_limits(stored_path)
         if not acquire_processing_slot():
             return server_busy_response()
 
@@ -314,8 +423,9 @@ def extract_document():
             release_processing_slot()
     except PdfValidationError as exc:
         return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    except Exception:
+        app.logger.exception("Extract request failed")
+        return jsonify({"error": GENERIC_PROCESSING_ERROR}), 500
     finally:
         try:
             stored_path.unlink(missing_ok=True)
@@ -358,7 +468,7 @@ def explain_uploaded_document():
     try:
         from agent.doc_explain import explain_document, translate_explanation
 
-        validate_pdf_page_count(stored_path)
+        validate_upload_resource_limits(stored_path)
         if not acquire_processing_slot():
             return server_busy_response()
 
@@ -390,8 +500,9 @@ def explain_uploaded_document():
             release_processing_slot()
     except PdfValidationError as exc:
         return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    except Exception:
+        app.logger.exception("Explain request failed")
+        return jsonify({"error": GENERIC_PROCESSING_ERROR}), 500
     finally:
         try:
             stored_path.unlink(missing_ok=True)

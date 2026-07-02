@@ -16,9 +16,25 @@ jobs:
 
       # paddlepaddle/paddleocr are intentionally skipped: the unit test suite
       # stubs paddleocr in tests/conftest.py, so CI avoids the heavy OCR install.
-      # Integration tests (--run-integration) are local-only.
+      # Integration tests (--run-integration) are local-only. The -r include
+      # line is skipped because both files are passed explicitly.
       - name: Install dependencies
-        run: grep -Ev '^(paddle(paddle|ocr)|#|$)' requirements.txt | xargs python -m pip install
+        run: grep -hEv '^(paddle(paddle|ocr)|#|$|-r)' requirements.txt requirements-dev.txt | xargs python -m pip install
 
       - name: Run tests
         run: python -m pytest tests/ -v
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: pdfscanner-web:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

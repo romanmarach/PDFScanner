@@ -73,7 +73,7 @@ Inside Docker, the app uses `RATE_LIMIT_STORAGE_URI=redis://redis:6379/0`.
 That Redis instance is shared by the web app and persists rate-limit data in the
 `redis-data` Docker volume. PaddleOCR model files are cached in the
 `paddlex-cache` Docker volume so container recreation does not redownload them
-after the first successful model fetch.
+after the first successful model fetch. The web and CLI containers run as the non-root `appuser`; writable runtime paths are limited to uploads, output, and the PaddleOCR cache.
 
 Redis is bound to `127.0.0.1:6379` on the host for local debugging and local
 Python runs. The web app is bound to `127.0.0.1:5000` on the host. Neither

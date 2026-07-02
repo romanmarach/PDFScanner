@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     FLAGS_use_mkldnn=0 \
     PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True \
-    FORWARDED_ALLOW_IPS=127.0.0.1,::1
+    FORWARDED_ALLOW_IPS=127.0.0.1,::1 \
+    HOME=/home/appuser
 
 # Install system dependencies for PaddleOCR and image/PDF processing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,15 +21,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && useradd --create-home --uid 1000 appuser
 
-COPY agent/ ./agent/
-COPY static/ ./static/
-COPY templates/ ./templates/
-COPY web_app.py ./
+COPY --chown=appuser:appuser agent/ ./agent/
+COPY --chown=appuser:appuser static/ ./static/
+COPY --chown=appuser:appuser templates/ ./templates/
+COPY --chown=appuser:appuser web_app.py ./
 
-RUN mkdir -p /app/uploads /app/output
+RUN mkdir -p /app/uploads /app/output /home/appuser/.paddlex \
+    && chown -R appuser:appuser /app/uploads /app/output /home/appuser/.paddlex
+
+USER appuser
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "web_app:app"]
+# start-period is generous because the first boot downloads OCR models and
+# loads them into memory before gunicorn starts accepting connections.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=4)"]
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "web_app:app"]
