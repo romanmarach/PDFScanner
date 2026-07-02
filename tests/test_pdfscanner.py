@@ -515,6 +515,33 @@ def flask_client(monkeypatch, tmp_path):
         yield client, tmp_path
 
 
+class TestWebUploadCleanup:
+    def test_cleanup_upload_dir_removes_stale_upload_files(self, monkeypatch, tmp_path):
+        import web_app
+
+        upload_dir = tmp_path / "uploads"
+        upload_dir.mkdir()
+        stale_file = upload_dir / "stale.pdf"
+        stale_file.write_bytes(b"leftover upload")
+        nested_dir = upload_dir / "nested"
+        nested_dir.mkdir()
+        nested_file = nested_dir / "keep.txt"
+        nested_file.write_text("not an upload file")
+        monkeypatch.setattr("web_app.UPLOAD_DIR", upload_dir)
+
+        web_app.cleanup_upload_dir()
+
+        assert not stale_file.exists()
+        assert nested_file.exists()
+
+    def test_cleanup_upload_dir_allows_missing_directory(self, monkeypatch, tmp_path):
+        import web_app
+
+        monkeypatch.setattr("web_app.UPLOAD_DIR", tmp_path / "missing-uploads")
+
+        web_app.cleanup_upload_dir()
+
+
 class TestWebPdfPageValidation:
     def test_validate_pdf_page_count_allows_pdf_at_limit(self, monkeypatch, tmp_path):
         import sys
@@ -779,6 +806,27 @@ class TestTurnstileVerification:
 
 
 class TestWebApp:
+    def test_security_headers_on_pages_and_api_errors(self, flask_client):
+        client, _ = flask_client
+
+        page_resp = client.get("/")
+        error_resp = client.post("/api/extract", data={"mode": "extract"})
+
+        for resp in (page_resp, error_resp):
+            assert resp.headers["X-Content-Type-Options"] == "nosniff"
+            assert resp.headers["X-Frame-Options"] == "DENY"
+            assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+            csp = resp.headers["Content-Security-Policy"]
+            assert "default-src 'self'" in csp
+            assert "script-src 'self' https://challenges.cloudflare.com" in csp
+            assert "frame-ancestors 'none'" in csp
+
+    def test_healthz_returns_ok(self, flask_client):
+        client, _ = flask_client
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.get_json() == {"status": "ok"}
+
     def test_index_returns_explainer(self, flask_client):
         client, _ = flask_client
         resp = client.get("/")

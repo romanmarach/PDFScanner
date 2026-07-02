@@ -35,6 +35,24 @@ ALLOWED_LANGUAGES = {
     "russian": "Russian",
 }
 GENERIC_PROCESSING_ERROR = "Something went wrong while processing the document. Please try again."
+# 'unsafe-inline' in style-src is required by the print/PDF feature, which
+# renders an iframe srcdoc containing an inline <style> block that inherits
+# this page-level policy.
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self' https://challenges.cloudflare.com",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data:",
+        "connect-src 'self'",
+        "frame-src https://challenges.cloudflare.com",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+    ]
+)
 MAX_EXPLAIN_CHARS = 60_000
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
@@ -80,6 +98,10 @@ limiter = Limiter(
     app=app,
     default_limits=[],
     storage_uri=RATE_LIMIT_STORAGE_URI,
+    # If Redis becomes unreachable at runtime, fall back to per-process
+    # in-memory limits instead of failing every rate-limited request.
+    swallow_errors=True,
+    in_memory_fallback_enabled=True,
 )
 processing_slots = BoundedSemaphore(MAX_CONCURRENT_JOBS)
 
@@ -99,6 +121,24 @@ class TurnstileValidationError(ValueError):
 class TurnstileConfigError(RuntimeError):
     """Raised when bot protection is enabled but not configured."""
 
+
+def cleanup_upload_dir() -> None:
+    if not UPLOAD_DIR.exists():
+        return
+
+    for upload_path in UPLOAD_DIR.iterdir():
+        try:
+            if upload_path.is_file() or upload_path.is_symlink():
+                upload_path.unlink()
+        except OSError:
+            app.logger.warning(
+                "Failed to delete stale upload: %s",
+                upload_path,
+                exc_info=True,
+            )
+
+
+cleanup_upload_dir()
 
 def allowed_file(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
@@ -236,6 +276,15 @@ def upload_names(filename: str) -> tuple[str, str]:
     return display_name, f"{uuid.uuid4().hex}{suffix}"
 
 
+@app.after_request
+def apply_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    return response
+
+
 @app.errorhandler(413)
 def upload_too_large(error):
     return jsonify({"error": f"File is larger than the {MAX_UPLOAD_MB} MB upload limit."}), 413
@@ -262,6 +311,12 @@ def parse_jsonish(value):
         return json.loads(value)
     except json.JSONDecodeError:
         return value
+
+
+@app.get("/healthz")
+def healthz():
+    """Liveness probe for Docker healthchecks and load balancers."""
+    return jsonify({"status": "ok"})
 
 
 @app.get("/")

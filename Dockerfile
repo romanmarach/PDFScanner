@@ -36,4 +36,9 @@ USER appuser
 
 EXPOSE 5000
 
+# start-period is generous because the first boot downloads OCR models and
+# loads them into memory before gunicorn starts accepting connections.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=4)"]
+
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "web_app:app"]
