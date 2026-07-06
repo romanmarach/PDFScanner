@@ -280,28 +280,88 @@ class TestOcrPdfFallback:
 # ---------------------------------------------------------------------------
 
 class TestExtractDocx:
-    def _get_fn(self, monkeypatch):
+    """Uses real .docx files built with python-docx instead of mocks, so the
+    tests exercise the actual table/header/footer traversal."""
+
+    def _write_docx(self, path, build):
+        import docx as docx_lib
+
+        document = docx_lib.Document()
+        build(document)
+        document.save(str(path))
+
+    def test_joins_paragraphs(self, tmp_path):
         from agent.text_extraction import extract_docx
-        return extract_docx
 
-    def test_joins_paragraphs(self, monkeypatch):
-        extract_docx = self._get_fn(monkeypatch)
+        docx_path = tmp_path / "paras.docx"
+        self._write_docx(
+            docx_path,
+            lambda d: (d.add_paragraph("Hello"), d.add_paragraph("World")),
+        )
 
-        fake_para = lambda text: MagicMock(text=text)
-        fake_doc = MagicMock()
-        fake_doc.paragraphs = [fake_para("Hello"), fake_para("World")]
+        assert extract_docx(str(docx_path)) == "Hello\nWorld"
 
-        with patch("agent.text_extraction.docx.Document", return_value=fake_doc):
-            result = extract_docx("fake.docx")
+    def test_empty_document(self, tmp_path):
+        from agent.text_extraction import extract_docx
 
-        assert result == "Hello\nWorld"
+        docx_path = tmp_path / "empty.docx"
+        self._write_docx(docx_path, lambda d: None)
 
-    def test_empty_document(self, monkeypatch):
-        extract_docx = self._get_fn(monkeypatch)
-        fake_doc = MagicMock()
-        fake_doc.paragraphs = []
-        with patch("agent.text_extraction.docx.Document", return_value=fake_doc):
-            assert extract_docx("empty.docx") == ""
+        assert extract_docx(str(docx_path)).strip() == ""
+
+    def test_includes_table_content_with_cells_joined_per_row(self, tmp_path):
+        from agent.text_extraction import extract_docx
+
+        def build(document):
+            document.add_paragraph("Invoice #42")
+            table = document.add_table(rows=2, cols=2)
+            table.rows[0].cells[0].text = "Consulting"
+            table.rows[0].cells[1].text = "$1,200.00"
+            table.rows[1].cells[0].text = "Total"
+            table.rows[1].cells[1].text = "$1,450.00"
+
+        docx_path = tmp_path / "invoice.docx"
+        self._write_docx(docx_path, build)
+
+        result = extract_docx(str(docx_path))
+        assert "Consulting | $1,200.00" in result
+        assert "Total | $1,450.00" in result
+
+    def test_preserves_document_order_around_tables(self, tmp_path):
+        from agent.text_extraction import extract_docx
+
+        def build(document):
+            document.add_paragraph("Before the table")
+            table = document.add_table(rows=1, cols=1)
+            table.rows[0].cells[0].text = "Inside the table"
+            document.add_paragraph("After the table")
+
+        docx_path = tmp_path / "ordered.docx"
+        self._write_docx(docx_path, build)
+
+        result = extract_docx(str(docx_path))
+        assert (
+            result.index("Before the table")
+            < result.index("Inside the table")
+            < result.index("After the table")
+        )
+
+    def test_includes_header_and_footer_text(self, tmp_path):
+        from agent.text_extraction import extract_docx
+
+        def build(document):
+            section = document.sections[0]
+            section.header.paragraphs[0].text = "Acme Corp - 123 Main St"
+            section.footer.paragraphs[0].text = "Page footer notice"
+            document.add_paragraph("Body text")
+
+        docx_path = tmp_path / "letterhead.docx"
+        self._write_docx(docx_path, build)
+
+        result = extract_docx(str(docx_path))
+        assert "Acme Corp - 123 Main St" in result
+        assert "Body text" in result
+        assert "Page footer notice" in result
 
 
 # ---------------------------------------------------------------------------

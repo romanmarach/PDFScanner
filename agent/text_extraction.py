@@ -158,7 +158,34 @@ def ocr_pdf(path: str) -> str:
 
 
 def extract_docx(path: str) -> str:
-    """Extract text from Word documents."""
+    """Extract text from Word documents, including tables, headers, and footers.
+
+    Table rows are flattened to "cell | cell | cell" lines so labels stay
+    paired with their values (e.g. "Total | $1,450.00"), which downstream
+    classification and explanation rely on.
+    """
+    from docx.table import Table
+
     doc = docx.Document(path)
-    return "\n".join([para.text for para in doc.paragraphs])
+    blocks: list[str] = []
+
+    for section in doc.sections:
+        for para in section.header.paragraphs:
+            if para.text.strip():
+                blocks.append(para.text)
+
+    for item in doc.iter_inner_content():
+        if isinstance(item, Table):
+            for row in item.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                blocks.append(" | ".join(cells))
+        else:
+            blocks.append(item.text)
+
+    for section in doc.sections:
+        for para in section.footer.paragraphs:
+            if para.text.strip():
+                blocks.append(para.text)
+
+    return "\n".join(blocks)
 
