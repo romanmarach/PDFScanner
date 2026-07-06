@@ -341,6 +341,10 @@ def extractor():
     )
 
 
+@app.get("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
 @app.post("/api/extract")
 @limiter.limit(
     EXTRACT_RATE_LIMIT,

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#2b4d3a">
+    <title>PDFScanner - Privacy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="logo" href="/">
+        <span class="logo-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+            <path d="M14 3v5h5M9 13h6M9 17h4"/>
+          </svg>
+        </span>
+        <span>
+          <span class="logo-text">PDFScanner</span>
+          <span class="logo-badge">Privacy</span>
+        </span>
+      </a>
+
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/">Explain</a>
+        <a href="/extract">Extract</a>
+        <a class="active" href="/privacy">Privacy</a>
+      </nav>
+
+      <div class="status-pill" id="statusPill">Privacy</div>
+    </header>
+
+    <main class="app-shell privacy-shell">
+      <section class="hero">
+        <h1>Privacy <em>note</em></h1>
+        <p>PDFScanner is built to process documents for the current request, not to keep a document history.</p>
+      </section>
+
+      <section class="privacy-card">
+        <div class="privacy-section">
+          <p class="section-label">Uploads</p>
+          <h2>Temporary processing</h2>
+          <p>Uploaded files are temporarily saved on the server while your request is processed, then deleted after processing finishes or fails.</p>
+          <p>For scanned PDFs, rendered page images are created in temporary folders for OCR and removed after OCR completes.</p>
+        </div>
+
+        <div class="privacy-section">
+          <p class="section-label">Storage</p>
+          <h2>No document accounts</h2>
+          <p>This app does not create user accounts and does not intentionally store uploaded documents, extracted text, explanations, summaries, or JSON/PDF downloads.</p>
+          <p>Downloads are generated in your browser from the result currently shown on the page.</p>
+        </div>
+
+        <div class="privacy-section">
+          <p class="section-label">AI features</p>
+          <h2>OpenAI processing</h2>
+          <p>Text-only extraction runs locally. When you use Explain or Analyze, extracted document text is sent to OpenAI to generate the explanation, summary, classification, or translation.</p>
+          <p>OpenAI says API data is not used to train its models unless you opt in, but API abuse-monitoring logs may retain customer content for up to 30 days by default. Read OpenAI's current policy on its <a href="https://developers.openai.com/api/docs/guides/your-data" rel="noreferrer">data controls page</a>.</p>
+        </div>
+
+        <div class="privacy-section">
+          <p class="section-label">Operations</p>
+          <h2>Technical metadata</h2>
+          <p>The server may keep ordinary operational logs and rate-limit counters, such as request timing, IP-based rate-limit keys, errors, and security checks. These are used to run and protect the service.</p>
+          <p>When bot protection is enabled, uploads are verified with Cloudflare Turnstile, which processes technical information about your browser and connection to distinguish people from bots. See <a href="https://www.cloudflare.com/privacypolicy/" rel="noreferrer">Cloudflare's privacy policy</a>.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">Explain</a>
+      <a href="/extract">Extract</a>
+      <a href="/privacy">Privacy</a>
+    </footer>
+  </body>
+</html>

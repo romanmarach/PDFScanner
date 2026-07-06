@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#2b4d3a">
     <title>PDFScanner - Document Explainer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,6 +34,7 @@
       <nav class="site-nav" aria-label="Primary navigation">
         <a class="active" href="/">Explain</a>
         <a href="/extract">Extract</a>
+        <a href="/privacy">Privacy</a>
       </nav>
 
       <div class="status-pill" id="statusPill">Ready</div>
@@ -46,7 +48,7 @@
 
       <form class="upload-card" id="explainForm" data-max-upload="{{ max_upload_bytes }}" data-turnstile-enabled="{{ 'true' if turnstile_enabled else 'false' }}">
         <label class="upload-zone" id="dropZone">
-          <input id="fileInput" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx">
+          <input id="fileInput" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
           <span class="upload-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
               <path d="M12 3v12m0-12 4 4m-4-4-4 4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>
@@ -143,7 +145,11 @@
         <p class="disclaimer">AI explanations can contain mistakes. Verify important legal, medical, financial, or government information with a qualified professional.</p>
       </section>
     </main>
-
+    <footer class="site-footer">
+      <a href="/">Explain</a>
+      <a href="/extract">Extract</a>
+      <a href="/privacy">Privacy</a>
+    </footer>
     <script src="{{ url_for('static', filename='explain.js') }}"></script>
   </body>
 </html>

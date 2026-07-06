@@ -840,6 +840,14 @@ class TestWebApp:
         assert resp.status_code == 200
         assert b"Document" in resp.data
 
+    def test_privacy_page_returns_200(self, flask_client):
+        client, _ = flask_client
+        resp = client.get("/privacy")
+        assert resp.status_code == 200
+        assert b"Temporary processing" in resp.data
+        assert b"OpenAI" in resp.data
+        assert b"does not create user accounts" in resp.data
+
     def test_pages_render_turnstile_when_enabled(self, flask_client, monkeypatch):
         client, _ = flask_client
 
