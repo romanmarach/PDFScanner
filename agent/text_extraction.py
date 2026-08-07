@@ -1,11 +1,13 @@
 import os
-# Skip Paddle's model-source network probe during app startup.
-os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 import tempfile
 
-import pdfplumber
+# Skip Paddle's model-source network probe during app startup.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
 import docx
+import pdfplumber
 from paddleocr import PaddleOCR
+
 
 # Source of truth for what extract_text() can handle. The CLI and web app
 # derive their accepted-file lists from this; the web app may expose a
@@ -22,11 +24,10 @@ def get_ocr():
     global _ocr
 
     if _ocr is None:
-        # PaddleOCR 3.x init (cls/use_angle_cls is replaced by use_textline_orientation)
+        # PaddleOCR 3.x init (cls/use_angle_cls is replaced by use_textline_orientation).
         _ocr = PaddleOCR(
             lang="en",
             use_textline_orientation=True,
-            # Optional: disable these if you want less overhead
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
         )
@@ -35,20 +36,19 @@ def get_ocr():
 
 
 def extract_text(file_path: str) -> str:
-    """Main extraction function."""
+    """Extract text from a supported document path."""
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".pdf":
         return extract_pdf(file_path)
 
-    elif ext in [".jpg", ".jpeg", ".png"]:
+    if ext in [".jpg", ".jpeg", ".png"]:
         return ocr_image(file_path)
 
-    elif ext == ".docx":
+    if ext == ".docx":
         return extract_docx(file_path)
 
-    else:
-        raise ValueError(f"Unsupported file type: {ext}")
+    raise ValueError(f"Unsupported file type: {ext}")
 
 
 def extract_pdf(path: str) -> str:
@@ -77,8 +77,8 @@ def extract_pdf(path: str) -> str:
 
 def paddle_predict_to_text(predict_output) -> str:
     """
-    Converts PaddleOCR 3.x predict() output (generator of result objects)
-    into plain text by extracting recognized text lines.
+    Convert PaddleOCR 3.x predict() output into plain text by extracting
+    recognized text lines.
     """
     lines: list[str] = []
 
@@ -89,20 +89,18 @@ def paddle_predict_to_text(predict_output) -> str:
 
         core = j.get("res", j)
 
-        # Common case: dict with "rec_texts"
         if isinstance(core, dict):
             rec_texts = core.get("rec_texts")
             if isinstance(rec_texts, list):
-                lines.extend([t for t in rec_texts if isinstance(t, str)])
+                lines.extend([text for text in rec_texts if isinstance(text, str)])
                 continue
 
-        # Sometimes: list of dicts (multi-page / multi-stage)
         if isinstance(core, list):
             for item in core:
                 if isinstance(item, dict):
                     rec_texts = item.get("rec_texts")
                     if isinstance(rec_texts, list):
-                        lines.extend([t for t in rec_texts if isinstance(t, str)])
+                        lines.extend([text for text in rec_texts if isinstance(text, str)])
 
     return "\n".join(lines)
 
@@ -110,40 +108,18 @@ def paddle_predict_to_text(predict_output) -> str:
 def ocr_image(path: str) -> str:
     """OCR for image files using PaddleOCR 3.x."""
     print("Extracting from OCR image directly (PaddleOCR predict)")
-    output = get_ocr().predict(input=path)  # NOTE: no cls=
+    output = get_ocr().predict(input=path)
     return paddle_predict_to_text(output)
 
 
-<<<<<<< HEAD
 def ocr_pdf_pages(path: str, page_numbers) -> dict[int, str]:
     """Render and OCR selected zero-based PDF page numbers."""
-=======
-def ocr_pdf(path: str) -> str:
-    """
-    OCR for PDFs using PaddleOCR 3.x.
-    1) Try passing the PDF path directly to ocr.predict()
-    2) If that fails / returns empty, render pages with PyMuPDF and OCR images
-    """
-    print("Extracting from OCR PDF (PaddleOCR predict)")
-
-    # Attempt 1: direct PDF OCR
-    try:
-        output = get_ocr().predict(input=path)
-        text = paddle_predict_to_text(output)
-        if text.strip():
-            return text
-        print("⚠️ Direct PDF OCR returned empty — falling back to page rendering...")
-    except Exception as e:
-        print(f"⚠️ Direct PDF OCR failed ({type(e).__name__}: {e}) — falling back to page rendering...")
-
-    # Attempt 2: render pages to images (fallback)
->>>>>>> cf54981 (Prepare Flask app for deployment)
     try:
         import fitz  # PyMuPDF
-    except ImportError as e:
+    except ImportError as exc:
         raise ImportError(
             "PyMuPDF is required for OCR fallback on PDFs. Install it with: pip install pymupdf"
-        ) from e
+        ) from exc
 
     requested_pages = set(page_numbers)
     page_texts: dict[int, str] = {}
@@ -158,17 +134,10 @@ def ocr_pdf(path: str) -> str:
                 page = pdf[page_num]
                 pix = page.get_pixmap()
 
-<<<<<<< HEAD
                 temp_img = os.path.join(temp_dir, f"page_{page_num}.png")
                 pix.save(temp_img)
-=======
-            output = get_ocr().predict(input=temp_img)
-            page_text = paddle_predict_to_text(output).strip()
-            if page_text:
-                combined_pages.append(page_text)
->>>>>>> cf54981 (Prepare Flask app for deployment)
 
-                output = ocr.predict(input=temp_img)
+                output = get_ocr().predict(input=temp_img)
                 page_texts[page_num] = paddle_predict_to_text(output).strip()
 
     return page_texts
@@ -178,31 +147,26 @@ def ocr_pdf(path: str) -> str:
     """Render and OCR every page in a PDF."""
     try:
         import fitz  # PyMuPDF
-    except ImportError as e:
+    except ImportError as exc:
         raise ImportError(
             "PyMuPDF is required for OCR fallback on PDFs. Install it with: pip install pymupdf"
-        ) from e
+        ) from exc
 
     with fitz.open(path) as pdf:
         page_numbers = list(range(len(pdf)))
 
     page_texts = ocr_pdf_pages(path, page_numbers)
-  # Technical debt: PDF pages are currently rendered at PyMuPDF's default
-  # resolution (about 72 DPI) before OCR. Increasing the render scale with
-  # fitz.Matrix(2, 2) or a configurable DPI may improve recognition of small,
-  # faint, or low-quality text, but it also increases processing time and memory
-  # usage. Current OCR accuracy is acceptable, so treat this as a future
-  # accuracy/performance option rather than a bug.
+    # Technical debt: PDF pages are currently rendered at PyMuPDF's default
+    # resolution, about 72 DPI, before OCR. Increasing the render scale with
+    # fitz.Matrix(2, 2) or a configurable DPI may improve recognition of small,
+    # faint, or low-quality text, but it also increases processing time and memory
+    # usage. Current OCR accuracy is acceptable, so treat this as a future
+    # accuracy/performance option rather than a bug.
     return "\n\n".join(page_texts[page_num] for page_num in page_numbers)
 
 
 def extract_docx(path: str) -> str:
-    """Extract text from Word documents, including tables, headers, and footers.
-
-    Table rows are flattened to "cell | cell | cell" lines so labels stay
-    paired with their values (e.g. "Total | $1,450.00"), which downstream
-    classification and explanation rely on.
-    """
+    """Extract text from Word documents, including tables, headers, and footers."""
     from docx.table import Table
 
     doc = docx.Document(path)
@@ -218,7 +182,7 @@ def extract_docx(path: str) -> str:
             for row in item.rows:
                 cells = [cell.text.strip() for cell in row.cells]
                 blocks.append(" | ".join(cells))
-        else:
+        elif item.text.strip():
             blocks.append(item.text)
 
     for section in doc.sections:
@@ -227,4 +191,3 @@ def extract_docx(path: str) -> str:
                 blocks.append(para.text)
 
     return "\n".join(blocks)
-
