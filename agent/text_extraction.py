@@ -14,14 +14,24 @@ EXTRACTABLE_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".docx"})
 MIN_PAGE_TEXT_CHARS = 20
 
 
-# PaddleOCR 3.x init (cls/use_angle_cls is replaced by use_textline_orientation)
-ocr = PaddleOCR(
-    lang="en",
-    use_textline_orientation=True,
-    # Optional: disable these if you want less overhead
-    use_doc_orientation_classify=False,
-    use_doc_unwarping=False,
-)
+_ocr = None
+
+
+def get_ocr():
+    """Create the PaddleOCR model only when OCR is actually needed."""
+    global _ocr
+
+    if _ocr is None:
+        # PaddleOCR 3.x init (cls/use_angle_cls is replaced by use_textline_orientation)
+        _ocr = PaddleOCR(
+            lang="en",
+            use_textline_orientation=True,
+            # Optional: disable these if you want less overhead
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+        )
+
+    return _ocr
 
 
 def extract_text(file_path: str) -> str:
@@ -100,12 +110,34 @@ def paddle_predict_to_text(predict_output) -> str:
 def ocr_image(path: str) -> str:
     """OCR for image files using PaddleOCR 3.x."""
     print("Extracting from OCR image directly (PaddleOCR predict)")
-    output = ocr.predict(input=path)  # NOTE: no cls=
+    output = get_ocr().predict(input=path)  # NOTE: no cls=
     return paddle_predict_to_text(output)
 
 
+<<<<<<< HEAD
 def ocr_pdf_pages(path: str, page_numbers) -> dict[int, str]:
     """Render and OCR selected zero-based PDF page numbers."""
+=======
+def ocr_pdf(path: str) -> str:
+    """
+    OCR for PDFs using PaddleOCR 3.x.
+    1) Try passing the PDF path directly to ocr.predict()
+    2) If that fails / returns empty, render pages with PyMuPDF and OCR images
+    """
+    print("Extracting from OCR PDF (PaddleOCR predict)")
+
+    # Attempt 1: direct PDF OCR
+    try:
+        output = get_ocr().predict(input=path)
+        text = paddle_predict_to_text(output)
+        if text.strip():
+            return text
+        print("⚠️ Direct PDF OCR returned empty — falling back to page rendering...")
+    except Exception as e:
+        print(f"⚠️ Direct PDF OCR failed ({type(e).__name__}: {e}) — falling back to page rendering...")
+
+    # Attempt 2: render pages to images (fallback)
+>>>>>>> cf54981 (Prepare Flask app for deployment)
     try:
         import fitz  # PyMuPDF
     except ImportError as e:
@@ -126,8 +158,15 @@ def ocr_pdf_pages(path: str, page_numbers) -> dict[int, str]:
                 page = pdf[page_num]
                 pix = page.get_pixmap()
 
+<<<<<<< HEAD
                 temp_img = os.path.join(temp_dir, f"page_{page_num}.png")
                 pix.save(temp_img)
+=======
+            output = get_ocr().predict(input=temp_img)
+            page_text = paddle_predict_to_text(output).strip()
+            if page_text:
+                combined_pages.append(page_text)
+>>>>>>> cf54981 (Prepare Flask app for deployment)
 
                 output = ocr.predict(input=temp_img)
                 page_texts[page_num] = paddle_predict_to_text(output).strip()
